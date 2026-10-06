@@ -1,0 +1,71 @@
+{
+  "header": { "home": "Accueil", "howTo": "Mode d'emploi", "features": "Fonctionnalités", "faq": "FAQ", "blog": "Blog" },
+  "hero": {
+    "badge": "Rapide et facile",
+    "title": "Télécharger des vidéos Threads",
+    "subtitle": "Téléchargez des vidéos Threads de haute qualité rapidement, en sécurité et gratuitement.",
+    "placeholder": "Collez le lien vidéo ici",
+    "button": "Télécharger",
+    "trust": "Vos données sont privées et sécurisées. Nous ne stockons ni liens ni fichiers.",
+    "example": "Exemple : https://www.threads.net/@utilisateur/post/abc123"
+  },
+  "trustRow": {
+    "fast": "Téléchargement rapide",
+    "fastDesc": "Serveurs ultra-rapides pour des téléchargements rapides.",
+    "safe": "Sûr et sécurisé",
+    "safeDesc": "Sans malwares ni publicités. 100 % sûr.",
+    "free": "Toujours gratuit",
+    "freeDesc": "Sans frais cachés. Totalement gratuit."
+  },
+  "howTo": {
+    "kicker": "Comment télécharger",
+    "title": "Comment télécharger une vidéo Threads",
+    "subtitle": "Enregistrez une vidéo Threads en quelques étapes simples.",
+    "steps": ["Copier le lien", "Coller le lien", "Cliquer sur Télécharger", "Enregistrer la vidéo"],
+    "descs": [
+      "Ouvrez l'app Threads et copiez le lien de la vidéo.",
+      "Collez le lien copié dans le champ ci-dessus.",
+      "Cliquez sur Télécharger et nous traitons votre vidéo.",
+      "Choisissez la qualité et enregistrez la vidéo."
+    ]
+  },
+  "formats": {
+    "kicker": "Formats pris en charge",
+    "title": "Choisissez votre format préféré",
+    "subtitle": "Choisissez la qualité adaptée à votre appareil.",
+    "items": ["MP4", "HD", "SD", "Mobile"],
+    "descs": ["Meilleure compatibilité", "Haute définition", "Qualité standard", "Optimisé pour tous les appareils"]
+  },
+  "why": {
+    "kicker": "Pourquoi nous",
+    "title": "Rapide, gratuit et fiable",
+    "subtitle": "Tout ce qu'il faut pour télécharger des posts publics dans des limites raisonnables.",
+    "items": ["Ultra rapide", "Privé et sécurisé", "Sans compte"],
+    "descs": [
+      "Nos serveurs offrent un traitement rapide.",
+      "Nous respectons votre vie privée. Aucun lien ni fichier stocké.",
+      "Aucune connexion requise. Collez un lien public."
+    ]
+  },
+  "faqSection": { "kicker": "FAQ", "title": "Questions fréquentes", "subtitle": "Réponses aux questions courantes sur notre téléchargeur Threads." },
+  "cta": { "title": "Prêt à télécharger des vidéos Threads ?", "subtitle": "Rapide, gratuit et facile. Sans inscription." },
+  "result": {
+    "found": "Média trouvé",
+    "download": "Télécharger",
+    "downloadAll": "Tout télécharger",
+    "newDownload": "Nouveau téléchargement",
+    "itemsFound": "fichiers média trouvés"
+  },
+  "errors": {
+    "INVALID_URL": "Veuillez saisir une URL Threads publique valide.",
+    "UNSUPPORTED_URL": "Ce lien n'est pas une URL de post Threads prise en charge.",
+    "NOT_FOUND": "Post introuvable. Il a peut-être été supprimé.",
+    "PRIVATE_CONTENT": "Ce post semble privé. Seuls les posts publics sont pris en charge.",
+    "MEDIA_NOT_FOUND": "Aucun média téléchargeable trouvé dans ce post.",
+    "RESOLVER_UNAVAILABLE": "Un problème est survenu. Veuillez réessayer.",
+    "RATE_LIMITED": "Trop de requêtes. Patientez une minute et réessayez.",
+    "TEMPORARY_ERROR": "Un problème est survenu. Veuillez réessayer.",
+    "UNKNOWN_ERROR": "Un problème est survenu. Veuillez réessayer."
+  },
+  "footer": { "disclaimer": "Ce site est un outil tiers indépendant, non affilié à Threads ou Meta, ni approuvé par eux." }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "threads-video-downloader",
+  "compatibility_date": "2026-10-05",
+  "main": "src/server/worker.ts",
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application"
+  },
+  "//": "Production uses Supabase (secrets via `wrangler secret put`). Local D1 testing config lives in git history if ever needed again.",
+  "vars": {
+    "MEDIA_RESOLVER_PROVIDER": "opensource",
+    "RESOLVE_CACHE_TTL": "300",
+    "SITE_URL": "https://www.savethreadsvideos.com"
+  }
+}

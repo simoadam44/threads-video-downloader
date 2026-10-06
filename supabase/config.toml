@@ -1,0 +1,23 @@
+# Supabase local project config.
+# Requires Docker Desktop running, then: npx supabase start
+# Studio: http://127.0.0.1:54323 | API: http://127.0.0.1:54321 | DB: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:54321"
+enable_signup = false
+jwt_expiry = 3600

@@ -1,0 +1,77 @@
+export interface AdminStats {
+  total: number;
+  success: number;
+  errors: number;
+  rateLimited: number;
+  last24h: number;
+  recent: { id: number; created_at: string; status: string; media_count: number }[];
+}
+
+export interface ContentFaq {
+  q: string;
+  a: string;
+}
+
+export interface AdminToolPage {
+  id: number;
+  slug: string;
+  badge: string;
+  lang: string;
+  target_keyword: string;
+  title: string;
+  description: string;
+  h1: string;
+  intro: string;
+  faqs: ContentFaq[];
+  related_slugs: string[];
+  status: string;
+}
+
+export interface AdminGuide {
+  id: number;
+  slug: string;
+  lang: string;
+  target_keyword: string;
+  title: string;
+  description: string;
+  h1: string;
+  body: string;
+  faqs: ContentFaq[];
+  related_slugs: string[];
+  status: string;
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
+  const data = (await res.json()) as { success: boolean; data?: T; error?: { message: string } };
+  if (!res.ok || !data.success) throw new Error(data.error?.message || `Request failed (${res.status})`);
+  return data.data as T;
+}
+
+export const adminApi = {
+  login: (email: string, password: string) =>
+    req<unknown>("/api/admin/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  logout: () => req<unknown>("/api/admin/logout", { method: "POST", body: "{}" }),
+  stats: () => req<AdminStats>("/api/admin/stats"),
+  requests: (limit: number, offset: number) =>
+    req<AdminStats["recent"]>(`/api/admin/requests?limit=${limit}&offset=${offset}`),
+  settings: () => req<Record<string, string>>("/api/admin/settings"),
+  updateSetting: (key: string, value: string) =>
+    req<unknown>("/api/admin/settings", { method: "PUT", body: JSON.stringify({ key, value }) }),
+  changePassword: (current: string, next: string) =>
+    req<unknown>("/api/admin/password", { method: "PUT", body: JSON.stringify({ current, next }) }),
+  toolPages: () => req<AdminToolPage[]>("/api/admin/tool-pages"),
+  createToolPage: (input: Omit<AdminToolPage, "id">) =>
+    req<AdminToolPage>("/api/admin/tool-pages", { method: "POST", body: JSON.stringify(input) }),
+  updateToolPage: (id: number, input: Omit<AdminToolPage, "id">) =>
+    req<AdminToolPage>(`/api/admin/tool-pages/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteToolPage: (id: number) =>
+    req<unknown>(`/api/admin/tool-pages/${id}`, { method: "DELETE" }),
+  guides: () => req<AdminGuide[]>("/api/admin/guides"),
+  createGuide: (input: Omit<AdminGuide, "id">) =>
+    req<AdminGuide>("/api/admin/guides", { method: "POST", body: JSON.stringify(input) }),
+  updateGuide: (id: number, input: Omit<AdminGuide, "id">) =>
+    req<AdminGuide>(`/api/admin/guides/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+  deleteGuide: (id: number) =>
+    req<unknown>(`/api/admin/guides/${id}`, { method: "DELETE" }),
+};

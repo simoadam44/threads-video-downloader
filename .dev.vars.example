@@ -1,0 +1,10 @@
+# LOCAL DEV ONLY (gitignored). Copy to `.dev.vars` and never commit.
+# Used by `npx wrangler dev --local`. Production uses `wrangler secret put` instead.
+ENVIRONMENT=dev
+DB_PROVIDER=d1
+ADMIN_DEV_TOKEN=change-me-local-only
+IP_HASH_SALT=local-dev-salt
+# Supabase local (needs Docker) — alternative to D1, leave empty when using D1:
+# SUPABASE_URL=http://127.0.0.1:54321
+# SUPABASE_ANON_KEY=
+# SUPABASE_SERVICE_KEY=

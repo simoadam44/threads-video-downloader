@@ -1,0 +1,71 @@
+{
+  "header": { "home": "Home", "howTo": "How to Use", "features": "Features", "faq": "FAQ", "blog": "Blog" },
+  "hero": {
+    "badge": "Fast and easy",
+    "title": "Download Threads Videos",
+    "subtitle": "Download high quality videos from Threads quickly, securely and for free.",
+    "placeholder": "Paste video URL here",
+    "button": "Download",
+    "trust": "Your data is private and secure. We don't store any links or files.",
+    "example": "Example: https://www.threads.net/@username/post/abc123"
+  },
+  "trustRow": {
+    "fast": "Fast Download",
+    "fastDesc": "Ultra-fast servers for quick downloads.",
+    "safe": "Safe & Secure",
+    "safeDesc": "No malware or ads. 100% safe to use.",
+    "free": "Always Free",
+    "freeDesc": "No hidden fees. Totally free forever."
+  },
+  "howTo": {
+    "kicker": "How to download",
+    "title": "How to download a Threads video",
+    "subtitle": "Save any Threads video in just a few simple steps.",
+    "steps": ["Copy Video Link", "Paste the Link", "Click Download", "Save Video"],
+    "descs": [
+      "Open the Threads app and copy the link of the video you want.",
+      "Paste the copied link into the input box above.",
+      "Hit the Download button and we'll process your video.",
+      "Choose the quality and save the video to your device."
+    ]
+  },
+  "formats": {
+    "kicker": "Supported formats",
+    "title": "Choose your preferred format",
+    "subtitle": "Pick the quality that fits your device.",
+    "items": ["MP4", "HD", "SD", "Mobile"],
+    "descs": ["Best compatibility", "High Definition", "Standard Quality", "Optimized for all devices"]
+  },
+  "why": {
+    "kicker": "Why use us",
+    "title": "Fast, free and reliable",
+    "subtitle": "Everything you need to download public posts within fair-use limits.",
+    "items": ["Blazing Fast", "Private & Secure", "No Account Needed"],
+    "descs": [
+      "Our servers deliver fast processing speeds.",
+      "We respect your privacy. We don't store your links or downloaded files.",
+      "No login required. Paste a public link and download."
+    ]
+  },
+  "faqSection": { "kicker": "FAQ", "title": "Frequently Asked Questions", "subtitle": "Find answers to common questions about our Threads video downloader." },
+  "cta": { "title": "Ready to download Threads videos?", "subtitle": "Fast, free and easy. No signup required." },
+  "result": {
+    "found": "Media found",
+    "download": "Download",
+    "downloadAll": "Download All",
+    "newDownload": "New Download",
+    "itemsFound": "media files found"
+  },
+  "errors": {
+    "INVALID_URL": "Please enter a valid public Threads URL.",
+    "UNSUPPORTED_URL": "This link is not a supported public Threads post URL.",
+    "NOT_FOUND": "We could not find this post. It may have been deleted.",
+    "PRIVATE_CONTENT": "This post appears to be private. Only public posts are supported.",
+    "MEDIA_NOT_FOUND": "No downloadable media was found in this post.",
+    "RESOLVER_UNAVAILABLE": "Something went wrong while retrieving this media. Please try again.",
+    "RATE_LIMITED": "Too many requests. Please wait a minute and try again.",
+    "TEMPORARY_ERROR": "Something went wrong while retrieving this media. Please try again.",
+    "UNKNOWN_ERROR": "Something went wrong. Please try again."
+  },
+  "footer": { "disclaimer": "This website is an independent third-party tool and is not affiliated with or endorsed by Threads or Meta." }
+}

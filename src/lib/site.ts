@@ -1,9 +1,10 @@
-// Canonical production origin. The live site 301-redirects www → apex, so the
-// apex domain is the canonical host (canonicals, sitemap and robots must match).
+// Canonical production origin. `https://www.<domain>` is canonical: the apex
+// host 301-redirects to it in the Worker (see canonicalHostRedirect), so
+// canonicals, OG URLs, sitemap and robots must all use this same host.
 export const SITE_URL =
   (typeof import.meta !== "undefined" &&
     (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SITE_URL) ||
-  "https://savethreadsvideos.com";
+  "https://www.savethreadsvideos.com";
 
 export function canonicalFor(path: string): string {
   const p = path === "/" ? "/" : path.startsWith("/") ? path : `/${path}`;

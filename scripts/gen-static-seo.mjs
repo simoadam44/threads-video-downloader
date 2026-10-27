@@ -95,15 +95,26 @@ export function buildRobotsTxt(origin) {
   return `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\nSitemap: ${origin}/sitemap.xml\n`;
 }
 
-function siteUrl() {
+/**
+ * Read SITE_URL from the Wrangler config. `wrangler.jsonc` allows `//` comments,
+ * so plain JSON.parse() throws on it — that silently fell back to the hardcoded
+ * host and produced a sitemap/robots pair pointing at the wrong domain.
+ * Only whole-line comments are stripped: the SITE_URL value itself contains
+ * "https://", so a naive global comment regex would corrupt the JSON.
+ */
+export function readSiteUrlFromConfig(file) {
   try {
-    const raw = JSON.parse(readFileSync(join(root, "wrangler.jsonc"), "utf8"));
-    const v = (raw?.vars?.SITE_URL || "").trim().replace(/\/$/, "");
+    const raw = readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    const v = (JSON.parse(raw)?.vars?.SITE_URL || "").trim().replace(/\/$/, "");
     if (v) return v;
   } catch {
     // fall through to default
   }
-  return "https://savethreadsvideos.com";
+  return "https://www.savethreadsvideos.com";
+}
+
+function siteUrl() {
+  return readSiteUrlFromConfig(join(root, "wrangler.jsonc"));
 }
 
 async function fetchList(base, path) {

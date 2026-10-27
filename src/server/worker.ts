@@ -61,6 +61,48 @@ function siteUrl(env: Env, req: Request): string {
 }
 
 /**
+ * Host canonicalization: `https://www.<domain>` is the canonical origin, so the
+ * apex host must 301 to it (path + query preserved, one hop).
+ *
+ * Canonical base comes from SITE_URL, so flipping the preferred host is a
+ * config change, not a code change. Guard rails:
+ * - Only the site's own apex/www hosts are matched, never arbitrary domains
+ *   (workers.dev, preview hosts and localhost keep working untouched).
+ * - The canonical host in its HTTPS form is never redirected (no loops).
+ * - GET/HEAD only: a 301 rewrites POST→GET, which would silently break the
+ *   resolve API if a client still used the apex origin.
+ * - Existing query strings are forwarded verbatim (campaign links keep working).
+ */
+export function canonicalHostRedirect(req: Request, canonicalBase: string): Response | null {
+  if (req.method !== "GET" && req.method !== "HEAD") return null;
+  let canonical: URL;
+  try {
+    canonical = new URL(canonicalBase);
+  } catch {
+    return null;
+  }
+  const apex = canonical.hostname.replace(/^www\./i, "").toLowerCase();
+  // Fail safe: only a canonical base that is explicitly the "www." host gives a
+  // distinct target. Without that (SITE_URL unset → siteUrl() falls back to the
+  // request origin, or a misconfigured apex SITE_URL) redirecting would point
+  // the request at itself and loop forever.
+  if (canonical.hostname.toLowerCase() !== `www.${apex}`) return null;
+  const url = new URL(req.url);
+  const host = url.hostname.toLowerCase();
+  const isApex = host === apex;
+  const isWww = host === `www.${apex}`;
+  // Not one of our hosts (or an unrelated subdomain): leave the request alone.
+  if (!isApex && !isWww) return null;
+  if (isWww && url.protocol === "https:") return null;
+  const location = canonical.origin + url.pathname + url.search;
+  const headers = new Headers();
+  headers.set("location", location);
+  // Host-level permanence: safe to cache, and keeps the 301 cheap at the edge.
+  headers.set("cache-control", "public, max-age=3600");
+  return new Response(null, { status: 301, headers });
+}
+
+/**
  * `script-src 'self'` blocks inline scripts, which silently killed the theme
  * bootstrap in index.html (wrong-theme flash, stored dark preference ignored).
  * A hash keeps responses cacheable (a per-request nonce would not).
@@ -1083,6 +1125,10 @@ async function handleResolve(req: Request, env: Env): Promise<Response> {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    // Canonical host before anything else: every path (API, SEO, assets) is
+    // covered, so the apex host can never serve a duplicate of the site.
+    const hostRedirect = canonicalHostRedirect(req, siteUrl(env, req));
+    if (hostRedirect) return hostRedirect;
     if (req.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, resolver: getResolver(env).name }, 200);
     }

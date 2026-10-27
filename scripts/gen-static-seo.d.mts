@@ -9,3 +9,4 @@ export function buildSitemapXml(
 ): string;
 export function buildRobotsTxt(origin: string): string;
 export function encodeLoc(loc: unknown): string;
+export function readSiteUrlFromConfig(file: string): string;

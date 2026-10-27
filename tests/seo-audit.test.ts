@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { sitemapXml, canonicalPath, encodePath } from "../src/server/worker";
+import { sitemapXml, canonicalPath, encodePath, canonicalHostRedirect } from "../src/server/worker";
 import { THEME_SCRIPT_HASH, cspHeaderValue } from "../src/lib/csp";
 import { renderStaticRoute, renderMinimalShell, injectRoot } from "../src/server/content/render";
 import { SEO_ROUTES } from "../src/lib/seo-routes";
 import { FAQ_ITEMS } from "../src/lib/faq";
 
-// The live site 301-redirects www → apex, so apex is the canonical host.
-const ORIGIN = "https://savethreadsvideos.com";
+// `https://www.<domain>` is canonical; the apex host 301-redirects to it.
+const ORIGIN = "https://www.savethreadsvideos.com";
 const route = { path: "/faq", title: "FAQ - Threads Video Downloader", description: "Answers here.", h1: "FAQ" };
 
 function locs(xml: string): string[] {
@@ -30,7 +30,8 @@ describe("sitemap XML validity", () => {
     expect(new Set(urls).size).toBe(urls.length);
     for (const u of urls) {
       expect(u.startsWith(ORIGIN)).toBe(true);
-      expect(u).not.toContain("www.");
+      // Never the apex (redirecting) host.
+      expect(u).not.toContain("//savethreadsvideos.com");
       expect(u).not.toContain("localhost");
       expect(u).not.toContain("example.com");
       expect(u).not.toContain("/api/");
@@ -220,5 +221,75 @@ describe("SEO registry quality", () => {  it("unique titles/descriptions/H1s acr
       expect(r.description.length).toBeGreaterThan(60);
       expect(r.h1.length).toBeGreaterThan(3);
     }
+  });
+});
+
+describe("canonical host redirect (apex -> https://www)", () => {
+  const CANON = "https://www.savethreadsvideos.com";
+
+  function redirect(from: string, method = "GET") {
+    const res = canonicalHostRedirect(new Request(from, { method }), CANON);
+    return res ? { status: res.status, location: res.headers.get("location") } : null;
+  }
+
+  it("301s the apex host to the www host in a single hop", () => {
+    expect(redirect("https://savethreadsvideos.com/")).toEqual({
+      status: 301,
+      location: "https://www.savethreadsvideos.com/",
+    });
+  });
+
+  it("upgrades plain HTTP on both hosts (including http://www)", () => {
+    expect(redirect("http://savethreadsvideos.com/")?.location).toBe("https://www.savethreadsvideos.com/");
+    expect(redirect("http://www.savethreadsvideos.com/")?.location).toBe("https://www.savethreadsvideos.com/");
+  });
+
+  it("preserves nested paths, trailing slashes and query strings exactly", () => {
+    expect(redirect("https://savethreadsvideos.com/blog/example/")?.location).toBe(
+      "https://www.savethreadsvideos.com/blog/example/",
+    );
+    expect(redirect("https://savethreadsvideos.com/?utm_source=test&a=1")?.location).toBe(
+      "https://www.savethreadsvideos.com/?utm_source=test&a=1",
+    );
+    expect(redirect("https://savethreadsvideos.com/sitemap.xml")?.location).toBe(
+      "https://www.savethreadsvideos.com/sitemap.xml",
+    );
+  });
+
+  it("never redirects the canonical host (no loop)", () => {
+    expect(redirect("https://www.savethreadsvideos.com/")).toBeNull();
+    expect(redirect("https://www.savethreadsvideos.com/faq?x=1")).toBeNull();
+  });
+
+  it("leaves unrelated hosts and local development untouched", () => {
+    expect(redirect("https://threads-video-downloader.hamdi708090.workers.dev/")).toBeNull();
+    expect(redirect("http://127.0.0.1:8788/")).toBeNull();
+    expect(redirect("http://localhost:5173/faq")).toBeNull();
+    // A lookalike domain must not match the apex rule.
+    expect(redirect("https://savethreadsvideos.com.evil.example/")).toBeNull();
+    expect(redirect("https://www.savethreadsvideos.com.evil.example/")).toBeNull();
+  });
+
+  it("does not rewrite non-idempotent methods (a 301 would turn POST into GET)", () => {
+    expect(redirect("https://savethreadsvideos.com/api/resolve", "POST")).toBeNull();
+    expect(redirect("https://savethreadsvideos.com/api/resolve", "GET")?.status).toBe(301);
+  });
+
+  it("is a 301 with cacheable headers", () => {
+    const res = canonicalHostRedirect(new Request("https://savethreadsvideos.com/x"), CANON);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("cache-control")).toContain("max-age=");
+    expect(res?.body).toBeNull();
+  });
+});
+describe("canonical host redirect fail-safes", () => {
+  it("does not redirect when the canonical base is not a distinct www host", () => {
+    // SITE_URL unset ? siteUrl() falls back to the request origin. Redirecting
+    // there would point the request at itself (infinite loop).
+    const req = new Request("https://test.local/faq");
+    expect(canonicalHostRedirect(req, "https://test.local")).toBeNull();
+    expect(canonicalHostRedirect(req, "https://savethreadsvideos.com")).toBeNull();
+    // Malformed config must never crash or loop.
+    expect(canonicalHostRedirect(req, "not a url")).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildSitemapXml, buildRobotsTxt, escapeXml, isSafeSlug, encodeLoc } from "../scripts/gen-static-seo.mjs";
 
-const ORIGIN = "https://savethreadsvideos.com";
+const ORIGIN = "https://www.savethreadsvideos.com";
 const STATIC = ["/", "/faq", "/blog"];
 const ARABIC = "تحميل-فيديو-ثريدز";
 const TOOLS = [
@@ -65,12 +65,30 @@ describe("static sitemap enrichment (build-time)", () => {
     expect(encodeLoc(`${ORIGIN}/blog/some-guide`)).toBe(`${ORIGIN}/blog/some-guide`);
     expect(encodeLoc("not a url")).toBe("not a url");
   });
-  it("robots references the canonical sitemap on the apex host", () => {
+  it("robots references the canonical sitemap on the www host", () => {
     const robots = buildRobotsTxt(ORIGIN);
     expect(robots).toContain("Allow: /");
     expect(robots).toContain("Disallow: /api/");
     expect(robots).toContain("Disallow: /admin/");
     expect(robots).toContain(`Sitemap: ${ORIGIN}/sitemap.xml`);
-    expect(robots).not.toContain("www.");
+    // Sitemap directive must use the canonical www host, never the apex.
+    expect(robots).toContain("Sitemap: https://www.savethreadsvideos.com/sitemap.xml");
+    expect(robots).not.toContain("Sitemap: https://savethreadsvideos.com");
+  });
+});
+
+describe("build-time SITE_URL resolution", () => {
+  it("reads SITE_URL from wrangler.jsonc despite // comments", async () => {
+    const { readSiteUrlFromConfig } = await import("../scripts/gen-static-seo.mjs");
+    const url = readSiteUrlFromConfig(new URL("../wrangler.jsonc", import.meta.url).pathname);
+    // Must be the www host, so the static sitemap/robots never regress to apex.
+    expect(url).toBe("https://www.savethreadsvideos.com");
+  });
+
+  it("falls back to the www host for missing/malformed files", async () => {
+    const { readSiteUrlFromConfig } = await import("../scripts/gen-static-seo.mjs");
+    expect(readSiteUrlFromConfig("C:/definitely/not/here/wrangler.jsonc")).toBe(
+      "https://www.savethreadsvideos.com",
+    );
   });
 });

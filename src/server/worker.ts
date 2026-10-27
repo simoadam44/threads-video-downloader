@@ -874,8 +874,10 @@ function htmlSecurityHeaders(tracking: TrackingConfig | undefined, adsAuto = fal
   if (adsAuto) vendors.push("https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net");
   const hasCustom = tracking.head_custom.length > 0 || tracking.body_custom.length > 0;
   if (vendors.length === 0 && !hasCustom) return h;
-  const scriptSrc = [...vendors];
-  if (hasCustom) scriptSrc.push("'unsafe-inline'");
+  // GA4/Pixel bootstraps and admin custom code are inline, so inline must be
+  // allowed whenever any tracking is configured. cspHeaderValue then drops the
+  // theme hash (a hash would make browsers ignore 'unsafe-inline').
+  const scriptSrc = [...vendors, "'unsafe-inline'"];
   const csp = cspHeaderValue({
     isDev: IS_DEV,
     scriptSrc,

@@ -20,7 +20,7 @@ React 18 + Vite 6 + TypeScript strict + React Router 6 + `@cloudflare/vite-plugi
 ```bash
 npm install
 npm run dev        # Vite dev (frontend only)
-npm test           # vitest (157 tests / 16 files)
+npm test           # vitest (159 tests / 16 files)
 npm run build      # tsc + vite build + static sitemap/robots + og image assets (all SEO pages render server-side at request time)
 npm run preview    # preview production build
 npx wrangler dev   # full Worker runtime (assets + API)
@@ -87,7 +87,7 @@ impose operational limits — see below. Research: `docs/resolver-research.md`.
 - `wrangler.jsonc` sets `assets.not_found_handling: "none"`, `assets.binding: "ASSETS"` and `run_worker_first: ["/"]`. That combination is what makes real 404s, Worker-served SSR (crawlable nav/footer/JSON-LD on the homepage) and `env.ASSETS` all work; do not switch back to `single-page-application` handling. `/admin` + `/admin/*` are served explicitly by the Worker with `X-Robots-Tag: noindex, nofollow`.
 - Per-page metadata (canonical, description, `og:type`, `og:locale`) is applied by `src/lib/site.ts#applyPageSeo`; server-side head injection lives in `src/server/content/render.ts`.
 - Social image is `public/og-image.png` (1200×630 PNG; SVG og:images are not supported by major platforms).
-- The anti-FOUC inline theme script in `index.html` is allowed by CSP via a sha256 hash in `src/lib/csp.ts`; a test fails if the two drift. The CSP is sent in production only — `npm run dev` omits it because Vite's own inline React Refresh preamble would be blocked (that used to break hydration in dev). `wrangler dev` runs the production build, so it still verifies the real headers.
+- The anti-FOUC inline theme script in `index.html` is allowed by CSP via a sha256 hash in `src/lib/csp.ts`; a test fails if the two drift. The CSP is sent in production only — `npm run dev` omits it because Vite's own inline React Refresh preamble would be blocked (that used to break hydration in dev). `wrangler dev` runs the production build, so it still verifies the real headers. When tracking/ads/custom code is configured the policy switches from the hash to `'unsafe-inline'` (a hash would make browsers ignore it), and the Cloudflare Web Analytics beacon hosts are always allowed because the zone injects them.
 
 ## Deployment
 

@@ -25,14 +25,31 @@ export interface CspSources {
 }
 
 /**
+ * Cloudflare Web Analytics is injected by the zone (not by this Worker), so
+ * the beacon host must be allowed or the browser blocks it after every deploy.
+ */
+const CF_INSIGHTS_SCRIPT = "https://static.cloudflareinsights.com";
+const CF_INSIGHTS_CONNECT = "https://cloudflareinsights.com";
+
+/**
  * Build the Content-Security-Policy value, or `null` when no policy should be
  * sent (dev server). Production callers pass vendor sources only when those
  * integrations are actually configured.
  */
 export function cspHeaderValue(sources: CspSources): string | null {
   if (sources.isDev) return null;
-  const scriptSrc = ["'self'", THEME_SCRIPT_HASH, ...(sources.scriptSrc ?? [])];
-  const connectSrc = ["'self'", ...(sources.connectSrc ?? [])];
+  const extraScript = sources.scriptSrc ?? [];
+  // Browsers IGNORE 'unsafe-inline' when a hash is also present, so the theme
+  // hash must be dropped whenever a caller needs to allow inline scripts
+  // (tracking/ads/custom head code). Keeping both silently blocked GA4.
+  const hasUnsafeInline = extraScript.includes("'unsafe-inline'");
+  const scriptSrc = [
+    "'self'",
+    ...(hasUnsafeInline ? [] : [THEME_SCRIPT_HASH]),
+    CF_INSIGHTS_SCRIPT,
+    ...extraScript,
+  ];
+  const connectSrc = ["'self'", CF_INSIGHTS_CONNECT, ...(sources.connectSrc ?? [])];
   const imgSrc = ["'self'", "https:", "data:", ...(sources.imgSrc ?? [])];
   return (
     `default-src 'self'; img-src ${imgSrc.join(" ")}; media-src 'self' https:; ` +

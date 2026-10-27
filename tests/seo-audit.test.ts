@@ -193,6 +193,21 @@ describe("CSP vs the inline theme script", () => {
     expect(widened).toContain("https://www.google-analytics.com");
     expect(widened).toContain("img-src 'self' https: data: https://www.googletagmanager.com");
   });
+
+  it("allows the Cloudflare Web Analytics beacon the zone injects", () => {
+    const prod = cspHeaderValue({ isDev: false }) ?? "";
+    expect(prod).toContain("script-src");
+    expect(prod).toContain("https://static.cloudflareinsights.com");
+    expect(prod).toContain("connect-src 'self' https://cloudflareinsights.com");
+  });
+
+  // Browsers ignore 'unsafe-inline' when a hash is present. Emitting both
+  // silently blocked the GA4 inline bootstrap and any admin custom head code.
+  it("drops the hash when inline scripts are explicitly allowed", () => {
+    const widened = cspHeaderValue({ isDev: false, scriptSrc: ["'unsafe-inline'"] }) ?? "";
+    expect(widened).toContain("'unsafe-inline'");
+    expect(widened).not.toContain(THEME_SCRIPT_HASH);
+  });
 });
 
 describe("SEO registry quality", () => {  it("unique titles/descriptions/H1s across routes", () => {

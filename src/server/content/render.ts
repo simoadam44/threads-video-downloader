@@ -6,6 +6,7 @@
  */
 import type { ToolPage, Guide, LinkNode } from "./types";
 import { trackingHeadHtml, trackingBodyHtml, robotsMetaContent, canonicalWithBase, type TrackingConfig } from "./tracking";
+import { FAQ_ITEMS } from "../../lib/faq";
 
 export function escapeHtml(s: string): string {
   return s
@@ -14,6 +15,23 @@ export function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
+
+/** Schema.org locale for the languages the site actually supports. */
+function ogLocale(lang: string): string {
+  if (lang === "ar") return "ar_AR";
+  if (lang === "fr") return "fr_FR";
+  return "en_US";
+}
+
+function ogImageTags(image: string): string {
+  return (
+    `<meta property="og:image" content="${escapeHtml(image)}" />` +
+    `<meta property="og:image:width" content="1200" />` +
+    `<meta property="og:image:height" content="630" />` +
+    `<meta property="og:image:alt" content="Threads Video Downloader" />`
+  );
+}
+
 
 function faqJsonLd(faqs: { q: string; a: string }[]): string {
   return JSON.stringify({
@@ -39,6 +57,8 @@ export interface PageMeta {
   canonical: string;
   ogImage: string;
   lang: string;
+  /** Open Graph object type. Static/tool pages are "website"; guides are "article". */
+  ogType?: "website" | "article";
   jsonLd: string[];
   tracking?: TrackingConfig;
   /** Extra trusted head HTML (e.g. AdSense auto-ads script). */
@@ -81,10 +101,10 @@ export function renderMinimalShell(meta: PageMeta, contentHtml: string): string 
     `<meta property="og:title" content="${escapeHtml(meta.title)}" />` +
     `<meta property="og:description" content="${escapeHtml(meta.description)}" />` +
     `<meta property="og:url" content="${escapeHtml(meta.canonical)}" />` +
-    `<meta property="og:type" content="article" />` +
+    `<meta property="og:type" content="${meta.ogType ?? "website"}" />` +
     `<meta property="og:site_name" content="Threads Video Downloader" />` +
-    `<meta property="og:locale" content="${meta.lang === "ar" ? "ar_AR" : "en_US"}" />` +
-    `<meta property="og:image" content="${escapeHtml(meta.ogImage)}" />` +
+    `<meta property="og:locale" content="${ogLocale(meta.lang)}" />` +
+    ogImageTags(meta.ogImage) +
     `<meta name="twitter:card" content="summary_large_image" />` +
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />` +
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />` +
@@ -94,19 +114,79 @@ export function renderMinimalShell(meta: PageMeta, contentHtml: string): string 
   return applyTrackingBody(applyTrackingHead(out, meta), meta);
 }
 
+/**
+ * Replace the contents of the SPA mount point with server-rendered HTML.
+ * The built index.html ships a no-JS fallback inside #root, so a naive
+ * empty-div replacement silently fails and leaves homepage content on every
+ * route. This walks div nesting to find the real closing tag.
+ */
+export function injectRoot(html: string, contentHtml: string): string {
+  const open = /<div\b[^>]*\bid="root"[^>]*>/i.exec(html);
+  if (!open) return html;
+  const start = open.index + open[0].length;
+  const tag = /<\/?div\b[^>]*>/gi;
+  tag.lastIndex = start;
+  let depth = 1;
+  let m: RegExpExecArray | null;
+  while ((m = tag.exec(html))) {
+    depth += m[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) return html.slice(0, start) + contentHtml + html.slice(m.index);
+  }
+  return html;
+}
+
+/** Crawlable site navigation (plain anchors, existing routes only). */
+export function siteHeaderHtml(): string {
+  return (
+    `<header class="site"><div class="container nav">` +
+    `<a class="brand" href="/">Threads Video Downloader</a>` +
+    `<nav class="nav-links" aria-label="Main">` +
+    `<a href="/">Home</a>` +
+    `<a href="/threads-video-downloader">Video Downloader</a>` +
+    `<a href="/threads-photo-downloader">Photo Downloader</a>` +
+    `<a href="/threads-carousel-downloader">Carousel Downloader</a>` +
+    `<a href="/how-to-download-threads-videos">How to Use</a>` +
+    `<a href="/faq">FAQ</a>` +
+    `<a href="/blog">Blog</a>` +
+    `</nav></div></header>`
+  );
+}
+
+export function siteFooterHtml(): string {
+  return (
+    `<footer class="site"><div class="container">` +
+    `<nav aria-label="Footer">` +
+    `<a href="/threads-video-downloader">Video Downloader</a> · ` +
+    `<a href="/threads-photo-downloader">Photo Downloader</a> · ` +
+    `<a href="/threads-carousel-downloader">Carousel Downloader</a> · ` +
+    `<a href="/how-to-download-threads-videos">How It Works</a> · ` +
+    `<a href="/faq">FAQ</a> · ` +
+    `<a href="/blog">Blog</a> · ` +
+    `<a href="/privacy">Privacy</a> · ` +
+    `<a href="/terms">Terms</a> · ` +
+    `<a href="/contact">Contact</a>` +
+    `</nav>` +
+    `<small>This website is an independent third-party tool and is not affiliated with or endorsed by Threads or Meta.</small>` +
+    `</div></footer>`
+  );
+}
+
 export function renderShell(template: string, meta: PageMeta, contentHtml: string): string {
   let html = template;
   html = html.replace(/<title>.*?<\/title>/s, `<title>${escapeHtml(meta.title)}</title>`);
   html = html.replace(/<html lang="[^"]*">/, `<html lang="${meta.lang}" dir="${meta.lang === "ar" ? "rtl" : "ltr"}">`);
-  html = html.replace(/(<div id="root">)(<\/div>)/, `$1${contentHtml}$2`);
+  html = injectRoot(html, contentHtml);
   html = setMeta(html, "name", "description", meta.description);
   html = setMeta(html, "property", "og:title", meta.title);
   html = setMeta(html, "property", "og:description", meta.description);
   html = setMeta(html, "property", "og:url", meta.canonical);
-  html = setMeta(html, "property", "og:type", "article");
+  html = setMeta(html, "property", "og:type", meta.ogType ?? "website");
   html = setMeta(html, "property", "og:site_name", "Threads Video Downloader");
-  html = setMeta(html, "property", "og:locale", meta.lang === "ar" ? "ar_AR" : "en_US");
+  html = setMeta(html, "property", "og:locale", ogLocale(meta.lang));
   html = setMeta(html, "property", "og:image", meta.ogImage);
+  html = setMeta(html, "property", "og:image:width", "1200");
+  html = setMeta(html, "property", "og:image:height", "630");
+  html = setMeta(html, "property", "og:image:alt", "Threads Video Downloader");
   html = setMeta(html, "name", "twitter:card", "summary_large_image");
   html = setMeta(html, "name", "twitter:title", meta.title);
   html = setMeta(html, "name", "twitter:description", meta.description);
@@ -149,26 +229,47 @@ export function renderStaticRoute(
   route: { path: string; title: string; description: string; h1: string },
   tracking?: TrackingConfig,
   adsHead?: string,
+  guides?: { slug: string; title: string }[],
 ): string {
   const canonical = route.path === "/" ? `${origin}/` : `${origin}${route.path}`;
-  const content = `<main><p>Fast and easy</p><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
-    `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-download-threads-videos">How to download</a> · <a href="/faq">FAQ</a></p></main>`;
+  let main = `<main><p>Fast and easy</p><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
+    `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-download-threads-videos">How to download</a> · <a href="/faq">FAQ</a></p>`;
+  // /faq: put the real answers in the initial HTML (not only after hydration).
+  if (route.path === "/faq") {
+    main += `<section><h2>Common questions</h2>${FAQ_ITEMS.map(
+      (f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`,
+    ).join("")}</section>`;
+  }
+  // The /blog hub lists live guides so crawlers discover every article.
+  if (route.path === "/blog" && guides && guides.length > 0) {
+    main += `<nav aria-label="Latest guides"><h2>Latest guides</h2><ul>` +
+      guides
+        .slice(0, 100)
+        .map((g) => `<li><a href="/blog/${escapeHtml(g.slug)}">${escapeHtml(g.title)}</a></li>`)
+        .join("") +
+      `</ul></nav>`;
+  }
+  main += `</main>`;
+  const content = `${siteHeaderHtml()}${main}${siteFooterHtml()}`;
+  const schemas = [
+    JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "Threads Video Downloader",
+      url: origin,
+    }),
+  ];
+  if (route.path === "/faq") schemas.push(faqJsonLd(FAQ_ITEMS));
   const meta: PageMeta = {
     title: route.title,
     description: route.description,
     canonical,
     ogImage: `${origin}${ogImage}`,
     lang: "en",
+    ogType: "website",
     tracking,
     extraHead: adsHead,
-    jsonLd: [
-      JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "WebSite",
-        name: "Threads Video Downloader",
-        url: origin,
-      }),
-    ],
+    jsonLd: schemas,
   };
   return template ? renderShell(template, meta, content) : renderMinimalShell(meta, content);
 }
@@ -183,17 +284,18 @@ export function renderToolPage(
   adsHead?: string,
 ): string {
   const canonical = `${origin}/${page.slug}`;
-  const content = `<main><p>${escapeHtml(page.badge)}</p><h1>${escapeHtml(page.h1)}</h1>` +
+  const content = `${siteHeaderHtml()}<main><p>${escapeHtml(page.badge)}</p><h1>${escapeHtml(page.h1)}</h1>` +
     `<p>${escapeHtml(page.intro)}</p><div id="tool-mount"></div>` +
     faqHtml(page.faqs) +
     relatedHtml(related, origin, "Related tools") +
-    `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-download-threads-videos">How to download</a> · <a href="/faq">FAQ</a></p></main>`;
+    `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-download-threads-videos">How to download</a> · <a href="/faq">FAQ</a></p></main>${siteFooterHtml()}`;
   const meta: PageMeta = {
     title: page.title,
     description: page.description,
     canonical,
     ogImage: `${origin}${ogImage}`,
     lang: page.lang,
+    ogType: "website",
     tracking,
     extraHead: adsHead,
     jsonLd: [
@@ -221,16 +323,17 @@ export function renderGuide(
   adsHead?: string,
 ): string {
   const canonical = `${origin}/blog/${guide.slug}`;
-  const content = `<main><article><h1>${escapeHtml(guide.h1)}</h1>${guide.body}` +
+  const content = `${siteHeaderHtml()}<main><article><h1>${escapeHtml(guide.h1)}</h1>${guide.body}` +
     faqHtml(guide.faqs) +
     relatedHtml(related, `${origin}/blog`, "Related guides") +
-    `<p><a href="/">Threads Video Downloader</a> · <a href="/blog">All guides</a></p></article></main>`;
+    `<p><a href="/">Threads Video Downloader</a> · <a href="/blog">All guides</a></p></article></main>${siteFooterHtml()}`;
   const meta: PageMeta = {
     title: guide.title,
     description: guide.description,
     canonical,
     ogImage: `${origin}${ogImage}`,
     lang: guide.lang,
+    ogType: "article",
     tracking,
     extraHead: adsHead,
     jsonLd: [
@@ -239,6 +342,8 @@ export function renderGuide(
         "@type": "Article",
         headline: guide.title,
         description: guide.description,
+        image: `${origin}${ogImage}`,
+        inLanguage: guide.lang,
         mainEntityOfPage: canonical,
       }),
       faqJsonLd(guide.faqs),

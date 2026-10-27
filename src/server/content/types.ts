@@ -18,6 +18,8 @@ export interface ToolPage {
   faqs: ContentFaq[];
   related_slugs: string[];
   status: string;
+  /** DB row timestamp (always present on reads; absent on create/update inputs). */
+  updated_at?: string;
 }
 
 export interface Guide {
@@ -32,6 +34,8 @@ export interface Guide {
   faqs: ContentFaq[];
   related_slugs: string[];
   status: string;
+  /** DB row timestamp (always present on reads; absent on create/update inputs). */
+  updated_at?: string;
 }
 
 export type ToolPageInput = Omit<ToolPage, "id">;

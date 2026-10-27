@@ -3,34 +3,13 @@ import { useI18n } from "../i18n";
 import { DownloadForm, TrustRow, HowTo, Formats, WhyUs, Faq, CtaBanner, FAQ_ITEMS } from "../components/sections";
 import { AdSlot } from "../components/chrome";
 import { routeFor } from "../lib/seo-routes";
-import { canonicalFor } from "../lib/site";
-import { useEffect } from "react";
+import { applyPageSeo } from "../lib/site";
+import { useEffect, useState } from "react";
 
 export function useSeo(path: string) {
   useEffect(() => {
     const r = routeFor(path);
-    document.title = r.title;
-    const set = (sel: string, attr: string, val: string, tag = "meta") => {
-      let el = document.head.querySelector(`${tag}[${attr}="${sel}"]`) as HTMLMetaElement | HTMLLinkElement | null;
-      if (!el) {
-        el = document.createElement(tag) as HTMLMetaElement;
-        el.setAttribute(attr, sel);
-        document.head.appendChild(el);
-      }
-      if (tag === "link") (el as HTMLLinkElement).href = val;
-      else (el as HTMLMetaElement).content = val;
-    };
-    set("description", "name", r.description);
-    set("og:title", "property", r.title);
-    set("og:description", "property", r.description);
-    set("og:url", "property", canonicalFor(path));
-    let link = document.head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement("link");
-      link.rel = "canonical";
-      document.head.appendChild(link);
-    }
-    link.href = canonicalFor(path);
+    applyPageSeo({ title: r.title, description: r.description, canonicalPath: path, ogType: "website" });
   }, [path]);
 }
 
@@ -125,11 +104,40 @@ export function FaqPage() {
 
 export function BlogPage() {
   useSeo("/blog");
+  const [live, setLive] = useState<{ slug: string; title: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/content/guides")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!cancelled && j && j.success && Array.isArray(j.data)) {
+          setLive(
+            j.data
+              .filter((g: unknown) => g && typeof (g as { slug?: unknown }).slug === "string" && typeof (g as { title?: unknown }).title === "string")
+              .map((g: { slug: string; title: string }) => ({ slug: g.slug, title: g.title })),
+          );
+        }
+      })
+      .catch(() => {
+        /* static fallback below stays */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   return (
     <section className="section" style={{ textAlign: "left" }}>
       <h1>Blog</h1>
       <p className="lead">Guides for saving public Threads media responsibly on any device.</p>
       <div className="grid3">
+        {live.map((g) => (
+          <div className="card" key={`db-${g.slug}`}>
+            <h3>{g.title}</h3>
+            <p>
+              <Link to={`/blog/${g.slug}`}>Read guide →</Link>
+            </p>
+          </div>
+        ))}
         {[
           ["How to Download Threads Videos", "/how-to-download-threads-videos"],
           ["Threads Photo Downloader", "/threads-photo-downloader"],

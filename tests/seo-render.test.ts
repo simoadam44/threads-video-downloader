@@ -26,6 +26,14 @@ function fakeD1(): D1Binding & { tables: { tool_pages: Record<string, unknown>[]
         faqs: JSON.stringify([{ q: "Where do videos save on Android?", a: "In your Downloads folder and Gallery app automatically after saving." }]),
         related_slugs: JSON.stringify(["threads-video-downloader-hd"]), status: "live",
       },
+      {
+        id: 2, slug: "unpublished-draft-guide", lang: "en",
+        target_keyword: "Draft That Must Stay Hidden",
+        title: "Draft Guide That Must Never Appear Anywhere Public",
+        description: "A draft description that must never leak into any public list, hub, or sitemap for any reason at all.",
+        h1: "Draft Guide", body: "<p>" + "z".repeat(900) + "</p>",
+        faqs: JSON.stringify([]), related_slugs: JSON.stringify([]), status: "draft",
+      },
     ],
   };
   const parse = (q: string, values: unknown[]) => {
@@ -103,5 +111,63 @@ describe("server-rendered SEO pages", () => {
     expect(xml).toContain("/threads-video-downloader-hd");
     expect(xml).toContain("/blog/how-to-download-threads-videos-on-android");
     expect(xml).not.toContain("/api/");
+  });
+});
+
+describe("blog hub lists live guides", () => {
+  it("GET /api/content/guides returns live guides with light public fields only", async () => {
+    const res = await handlePublicContent(get("/api/content/guides"), env(), "/api/content/guides");
+    expect(res).not.toBe(null);
+    expect(res!.status).toBe(200);
+    const json = (await res!.json()) as { success: boolean; data: Record<string, unknown>[] };
+    expect(json.success).toBe(true);
+    expect(json.data.length).toBe(1);
+    expect(json.data[0]).toEqual({
+      slug: "how-to-download-threads-videos-on-android",
+      title: "How to Download Threads Videos on Android - Save to Gallery in Three Easy Steps",
+      description: "Learn how to download public Threads videos on Android and save them straight to your gallery with no app or login needed at all.",
+      lang: "en",
+      updated_at: "",
+    });
+    // Drafts and heavy/private fields never leak into the public index.
+    expect(JSON.stringify(json)).not.toContain("unpublished-draft-guide");
+    expect(JSON.stringify(json)).not.toContain("Draft Guide That Must Never Appear");
+  });
+  it("GET /api/content/tools returns live tool pages with light public fields", async () => {
+    const res = await handlePublicContent(get("/api/content/tools"), env(), "/api/content/tools");
+    expect(res).not.toBe(null);
+    expect(res!.status).toBe(200);
+    expect(res!.headers.get("content-type")).toContain("application/json");
+    const json = (await res!.json()) as { success: boolean; data: Record<string, unknown>[] };
+    expect(json.success).toBe(true);
+    expect(json.data.length).toBe(1);
+    expect(Object.keys(json.data[0]).sort()).toEqual(["description", "lang", "slug", "title", "updated_at"]);
+    expect(json.data[0]["slug"]).toBe("threads-video-downloader-hd");
+  });
+  it("SSR /blog hub links every live guide (crawlable without JS)", async () => {
+    const { handleStaticSeo } = await import("../src/server/worker");
+    const res = await handleStaticSeo(get("/blog"), env(), "/blog");
+    expect(res).not.toBe(null);
+    const html = await res!.text();
+    expect(res!.status).toBe(200);
+    expect(html).toContain('href="/blog/how-to-download-threads-videos-on-android"');
+    expect(html).not.toContain("unpublished-draft-guide");
+  });
+  it("other static routes render no guides nav", async () => {
+    const { handleStaticSeo } = await import("../src/server/worker");
+    const res = await handleStaticSeo(get("/faq"), env(), "/faq");
+    const html = await res!.text();
+    expect(html).not.toContain("Latest guides");
+  });
+  it("guide titles in the hub are HTML-escaped (no XSS via admin input)", async () => {
+    const { renderStaticRoute } = await import("../src/server/content/render");
+    const { SEO_ROUTES } = await import("../src/lib/seo-routes");
+    const route = SEO_ROUTES.find((r) => r.path === "/blog")!;
+    const html = renderStaticRoute(null, "https://test.local", "/og-image.svg", route, undefined, undefined, [
+      { slug: "xss-probe", title: '"><script>alert(1)</script>' },
+    ]);
+    expect(html).toContain('href="/blog/xss-probe"');
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>alert(1)</script>");
   });
 });

@@ -1,5 +1,6 @@
 import type { ToolPage, ToolPageInput, Guide, GuideInput } from "../content/types";
 import { validateTrackingSetting } from "../content/tracking";
+import { GEMINI_MODELS } from "../../lib/ai-models";
 
 const TRACKING_KEYS = new Set([
   "ga4_id",
@@ -20,6 +21,17 @@ const AD_SLOT_KEYS = new Set([
   "ad_slot_footer",
   "ad_slot_sticky",
 ]);
+
+// AI content generation (free Gemini tier). The key is write-only through the
+// admin settings API — GET masks it via ai/maskApiKey.
+// GEMINI_MODELS is shared (src/lib/ai-models.ts) so the admin UI dropdown and
+// the server validation can never drift apart.
+
+// Gemini keys come in two formats (Oct 2026): legacy Standard keys
+// ("AIza…", deprecated by Google since Sep 2026) and the current Auth keys
+// ("AQ.…", the only format AI Studio issues now). Accept both; Google itself
+// is the final judge (a wrong key surfaces as a friendly error at generation).
+const GEMINI_KEY_RE = /^(AIza[0-9A-Za-z_\-]{10,120}|AQ\.[0-9A-Za-z_\-.]{10,200})$/;
 
 export interface ResolveEventInput {
   urlHash: string;
@@ -89,6 +101,9 @@ export const ALLOWED_SETTINGS = new Set([
   "ad_slot_midpage",
   "ad_slot_footer",
   "ad_slot_sticky",
+  // AI content generator (write-only key — masked in GET responses)
+  "gemini_api_key",
+  "gemini_model",
 ]);
 
 export function validateSetting(key: string, value: string): boolean {
@@ -97,6 +112,12 @@ export function validateSetting(key: string, value: string): boolean {
   if (TRACKING_KEYS.has(key)) return validateTrackingSetting(key, value) === null;
   if (key === "adsense_pub_id") {
     return value === "" || /^ca-pub-\d{10,20}$/.test(value);
+  }
+  if (key === "gemini_api_key") {
+    return value === "" || GEMINI_KEY_RE.test(value);
+  }
+  if (key === "gemini_model") {
+    return (GEMINI_MODELS as readonly string[]).includes(value);
   }
   if (key === "ads_auto" || AD_SLOT_KEYS.has(key)) {
     return value === "true" || value === "false";

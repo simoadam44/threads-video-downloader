@@ -16,6 +16,7 @@ interface ToolRow {
   faqs: unknown;
   related_slugs: unknown;
   status: string;
+  updated_at: string | null;
 }
 
 interface GuideRow {
@@ -30,6 +31,7 @@ interface GuideRow {
   faqs: unknown;
   related_slugs: unknown;
   status: string;
+  updated_at: string | null;
 }
 
 function toTool(r: ToolRow): ToolPage {
@@ -38,6 +40,7 @@ function toTool(r: ToolRow): ToolPage {
     target_keyword: r.target_keyword ?? "", title: r.title, description: r.description,
     h1: r.h1, intro: r.intro ?? "", faqs: parseFaqs(r.faqs),
     related_slugs: parseSlugList(r.related_slugs), status: r.status,
+    updated_at: r.updated_at ?? "",
   };
 }
 
@@ -46,6 +49,7 @@ function toGuide(r: GuideRow): Guide {
     id: r.id, slug: r.slug, lang: r.lang, target_keyword: r.target_keyword ?? "",
     title: r.title, description: r.description, h1: r.h1, body: r.body ?? "",
     faqs: parseFaqs(r.faqs), related_slugs: parseSlugList(r.related_slugs), status: r.status,
+    updated_at: r.updated_at ?? "",
   };
 }
 

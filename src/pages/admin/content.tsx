@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { adminApi, type AdminToolPage, type AdminGuide, type ContentFaq } from "../../lib/admin-api";
+import { adminApi, type AdminToolPage, type AdminGuide, type ContentFaq, type AiDraft } from "../../lib/admin-api";
 import { AdminShell } from "./admin";
+import { AiDraftButton, AiSettingsCard } from "./ai-panel";
 
 type ToolForm = Omit<AdminToolPage, "id">;
 type GuideForm = Omit<AdminGuide, "id">;
@@ -70,6 +71,37 @@ function textInput(value: string, onChange: (v: string) => void, placeholder = "
   return (
     <input className="icon-btn" style={{ width: "100%" }} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
   );
+}
+
+/** Merge an AI tool draft into the form (never auto-saves). */
+function applyToolDraft(form: ToolForm, d: AiDraft): ToolForm {
+  if (d.kind !== "tool") return form;
+  return {
+    ...form,
+    slug: form.slug || d.slug,
+    badge: form.badge || d.badge,
+    title: d.title,
+    description: d.description,
+    h1: d.h1,
+    intro: d.intro,
+    faqs: d.faqs,
+    related_slugs: d.related_slugs,
+  };
+}
+
+/** Merge an AI guide draft into the form (never auto-saves). */
+function applyGuideDraft(form: GuideForm, d: AiDraft): GuideForm {
+  if (d.kind !== "guide") return form;
+  return {
+    ...form,
+    slug: form.slug || d.slug,
+    title: d.title,
+    description: d.description,
+    h1: d.h1,
+    body: d.body,
+    faqs: d.faqs,
+    related_slugs: d.related_slugs,
+  };
 }
 
 function ToolFormFields({ form, setForm }: { form: ToolForm; setForm: (f: ToolForm) => void }) {
@@ -222,6 +254,7 @@ export function KeywordsTools() {
         </div>
         <button className="btn" onClick={openNew}>+ Add Tool Page</button>
       </div>
+      <AiSettingsCard />
       {error && <p className="status" role="alert">{error}</p>}
       <div className="card" style={{ overflowX: "auto", padding: 0 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -258,6 +291,12 @@ export function KeywordsTools() {
         <div className="card" style={{ marginTop: 16 }}>
           <h2>{editing === "new" ? "Add Tool Page" : `Edit /${editing.slug}`}</h2>
           <form onSubmit={save}>
+            <AiDraftButton
+              kind="tool"
+              keyword={form.target_keyword}
+              lang={form.lang}
+              onDraft={(d) => setForm(applyToolDraft(form, d))}
+            />
             <ToolFormFields form={form} setForm={setForm} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button className="btn" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
@@ -335,6 +374,7 @@ export function BlogGuides() {
         </div>
         <button className="btn" onClick={openNew}>+ Add Guide</button>
       </div>
+      <AiSettingsCard />
       {error && <p className="status" role="alert">{error}</p>}
       <div className="card" style={{ overflowX: "auto", padding: 0 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -369,6 +409,12 @@ export function BlogGuides() {
         <div className="card" style={{ marginTop: 16 }}>
           <h2>{editing === "new" ? "Add Guide" : `Edit /blog/${editing.slug}`}</h2>
           <form onSubmit={save}>
+            <AiDraftButton
+              kind="guide"
+              keyword={form.target_keyword}
+              lang={form.lang}
+              onDraft={(d) => setForm(applyGuideDraft(form, d))}
+            />
             <GuideFormFields form={form} setForm={setForm} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button className="btn" disabled={saving}>{saving ? "Saving…" : "Save"}</button>

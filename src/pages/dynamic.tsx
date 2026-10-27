@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { DownloadForm, Faq } from "../components/sections";
-import { useSeo } from "./pages";
-import { canonicalFor } from "../lib/site";
+import { applyPageSeo } from "../lib/site";
 
 interface FaqItem {
   q: string;
@@ -52,13 +51,25 @@ export function DynamicToolPage({ slug }: { slug: string }) {
     fetchContent<ToolContent>(`/api/content/tool/${slug}`).then((p) => {
       if (p) {
         setPage(p);
-        document.title = p.title;
+        applyPageSeo({
+          title: p.title,
+          description: p.description,
+          canonicalPath: `/${p.slug}`,
+          ogType: "website",
+        });
         if (p.lang) document.documentElement.lang = p.lang;
         document.documentElement.dir = p.lang === "ar" ? "rtl" : "ltr";
-      } else setMissing(true);
+      } else {
+        setMissing(true);
+        applyPageSeo({
+          title: "Page not found - Threads Video Downloader",
+          description: "This page does not exist.",
+          canonicalPath: `/${slug}`,
+          robots: "noindex, nofollow",
+        });
+      }
     });
   }, [slug]);
-  useSeo("/");
   if (missing) {
     return (
       <section className="section">
@@ -90,7 +101,6 @@ export function DynamicToolPage({ slug }: { slug: string }) {
 
 export function DynamicToolRoute() {
   const { slug } = useParams();
-  useSeo("/");
   if (!slug) return null;
   return <DynamicToolPage key={slug} slug={slug} />;
 }
@@ -100,23 +110,28 @@ export function DynamicGuidePage() {
   const { slug } = useParams();
   const [guide, setGuide] = useState<GuideContent | null>(null);
   const [missing, setMissing] = useState(false);
-  useSeo("/blog");
   useEffect(() => {
     if (!slug) return;
     fetchContent<GuideContent>(`/api/content/guide/${slug}`).then((g) => {
       if (g) {
         setGuide(g);
-        document.title = g.title;
+        applyPageSeo({
+          title: g.title,
+          description: g.description,
+          canonicalPath: `/blog/${g.slug}`,
+          ogType: "article",
+        });
         if (g.lang) document.documentElement.lang = g.lang;
         document.documentElement.dir = g.lang === "ar" ? "rtl" : "ltr";
-        let link = document.head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
-        if (!link) {
-          link = document.createElement("link");
-          link.rel = "canonical";
-          document.head.appendChild(link);
-        }
-        link.href = canonicalFor(`/blog/${g.slug}`);
-      } else setMissing(true);
+      } else {
+        setMissing(true);
+        applyPageSeo({
+          title: "Page not found - Threads Video Downloader",
+          description: "This guide does not exist.",
+          canonicalPath: `/blog/${slug}`,
+          robots: "noindex, nofollow",
+        });
+      }
     });
   }, [slug]);
   if (missing) {

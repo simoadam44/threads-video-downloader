@@ -78,7 +78,7 @@ describe("tracking injection", () => {
 describe("static SSR", () => {
   const route = { path: "/faq", title: "FAQ Title Here", description: "A fine description.", h1: "FAQ H1" };
   it("renders route meta without template or tracking", () => {
-    const html = renderStaticRoute(null, "https://savethreadsvideos.com", "/og-image.svg", route);
+    const html = renderStaticRoute(null, "https://savethreadsvideos.com", "/og-image.png", route);
     expect(html).toContain("<title>FAQ Title Here</title>");
     expect(html).toContain("<h1>FAQ H1</h1>");
     expect(html).toContain('rel="canonical" href="https://savethreadsvideos.com/faq"');
@@ -90,7 +90,7 @@ describe("static SSR", () => {
       ga4_id: "G-TEST123456", robots_index: "false",
       canonical_base: "https://savethreadsvideos.com", head_custom: "<!-- h -->", body_custom: "<!-- b -->",
     });
-    const html = renderStaticRoute(null, "https://old.example", "/og-image.svg", route, t);
+    const html = renderStaticRoute(null, "https://old.example", "/og-image.png", route, t);
     expect(html).toContain("gtag/js?id=G-TEST123456");
     expect(html).toContain('name="robots" content="noindex, nofollow"');
     expect(html).toContain('rel="canonical" href="https://savethreadsvideos.com/faq"');

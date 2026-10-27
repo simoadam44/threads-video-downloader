@@ -8,7 +8,7 @@ Independent third-party tool to save **public** Threads videos, photos and carou
 - Quality pills show only qualities that actually exist (never fabricated)
 - Download All (sequential individual downloads; no Worker-side ZIP to avoid memory buffering)
 - Light minimal UI matching spec screenshot + dark mode toggle, EN/FR/AR (AR = RTL)
-- SEO: server-rendered HTML for every route (`SEO_ROUTES` single source + DB slugs), `/sitemap.xml`, `/robots.txt`; `/robots.txt`
+- SEO: server-rendered HTML for every route (`SEO_ROUTES` single source + DB slugs), `/sitemap.xml`, `/robots.txt`, canonical/OG/Twitter/JSON-LD on every page; real 404s, `HEAD` support, apex canonical host `https://savethreadsvideos.com`
 - Security: Threads-domain allowlist, SSRF protection, rate limiting (20/min resolve), short metadata cache, no open proxy, no media buffering in Worker
 
 ## Tech stack
@@ -20,8 +20,8 @@ React 18 + Vite 6 + TypeScript strict + React Router 6 + `@cloudflare/vite-plugi
 ```bash
 npm install
 npm run dev        # Vite dev (frontend only)
-npm test           # vitest (20 tests)
-npm run build      # tsc + vite build (all SEO pages render server-side at request time)
+npm test           # vitest (157 tests / 16 files)
+npm run build      # tsc + vite build + static sitemap/robots + og image assets (all SEO pages render server-side at request time)
 npm run preview    # preview production build
 npx wrangler dev   # full Worker runtime (assets + API)
 npx wrangler deploy
@@ -33,7 +33,7 @@ See `.env.example`. Key vars:
 
 | Var | Purpose |
 |---|---|
-| `SITE_URL` | Canonical/sitemap/robots base (placeholder: `https://threads-video-downloader.example.com`) |
+| `SITE_URL` | Canonical/sitemap/robots base — apex, no `www`: `https://savethreadsvideos.com` |
 | `MEDIA_RESOLVER_PROVIDER` | `opensource` (default, no key) \\| `mock` (dev fixtures) \\| `external` (optional paid API) |
 | `RESOLVE_CACHE_TTL` | Metadata cache seconds (300) |
 
@@ -79,7 +79,15 @@ impose operational limits — see below. Research: `docs/resolver-research.md`.
 
 - `POST /api/resolve` `{ "url": "https://www.threads.net/..." }` → `{ success, data: ResolvedPost }` or `{ success: false, error: { code, message } }`
 - `GET /api/health` → `{ ok: true }`
-- `GET /sitemap.xml`, `GET /robots.txt` (dynamic, SITE_URL-based, include live DB slugs; never emitted as static files)
+- `GET /sitemap.xml`, `GET /robots.txt` — served by the Worker (SITE_URL-based, includes live DB slugs) **and** emitted as static files in `dist/client/` at build time; Static Assets wins for real browser navigations, so the build regenerates both on every `npm run build`. `HEAD` returns the same status/headers with an empty body.
+
+## Technical SEO notes
+
+- Canonical host is the **apex** (`https://savethreadsvideos.com`); `www` 301-redirects to it in production. `SITE_URL`, every canonical, OG/Twitter URL, the sitemap and robots all use apex.
+- `wrangler.jsonc` sets `assets.not_found_handling: "none"`, `assets.binding: "ASSETS"` and `run_worker_first: ["/"]`. That combination is what makes real 404s, Worker-served SSR (crawlable nav/footer/JSON-LD on the homepage) and `env.ASSETS` all work; do not switch back to `single-page-application` handling. `/admin` + `/admin/*` are served explicitly by the Worker with `X-Robots-Tag: noindex, nofollow`.
+- Per-page metadata (canonical, description, `og:type`, `og:locale`) is applied by `src/lib/site.ts#applyPageSeo`; server-side head injection lives in `src/server/content/render.ts`.
+- Social image is `public/og-image.png` (1200×630 PNG; SVG og:images are not supported by major platforms).
+- The anti-FOUC inline theme script in `index.html` is allowed by CSP via a sha256 hash in `src/lib/csp.ts`; a test fails if the two drift. The CSP is sent in production only — `npm run dev` omits it because Vite's own inline React Refresh preamble would be blocked (that used to break hydration in dev). `wrangler dev` runs the production build, so it still verifies the real headers.
 
 ## Deployment
 
@@ -168,10 +176,32 @@ title (30-160), meta description (120-320), H1, substantial body/intro, ≥3 FAQ
 Public delivery is crawlable without JS: the Worker server-renders each live
 slug (unique meta + canonical + OG/Twitter + JSON-LD `WebApplication`/`Article`/
 `FAQPage`, related-links graph) and includes all live slugs in the dynamic
-`/sitemap.xml` (static sitemap/robots copies are intentionally NOT emitted so
-they cannot shadow dynamic routes). The React app hydrates interactivity via
+`/sitemap.xml`. Build-time static copies (`scripts/gen-static-seo.mjs`) also
+exist so real browser navigations get valid XML/text from Static Assets (see
+AGENTS.md assets-routing note). The React app hydrates interactivity via
 `/api/content/tool/:slug` and `/api/content/guide/:slug` plus dynamic routes.
 Seed content: `d1/seed-tools.sql`, `d1/seed-guides.sql` (apply to Supabase with
 the matching `supabase/migrations/0002_seo_content.sql` on cloud).
 
 Production (Supabase Cloud, zero code changes): create cloud project → apply `supabase/migrations` (`supabase db push`) → create admin user + role → `wrangler secret put` for `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_ANON_KEY`, `IP_HASH_SALT` → `npm run deploy`.
+
+## AI content drafts (Gemini — free tier)
+
+Both engines (`/admin/keywords-tools` and `/admin/blog-guides`) have an
+**AI Content Generator (Gemini — free tier)** settings card and a
+**"Generate with AI from Target Keyword"** button in every add/edit form.
+
+Setup (first time only):
+
+1. Get a free key at `https://aistudio.google.com/apikey` (no credit card; free tier ≈ 1,500 requests/day per model).
+2. Paste it into the AI settings card on either engine page and pick a model (default `gemini-3.8-flash`, the current stable Flash model recommended for new projects). The key is stored server-side (DB setting), is **never returned by any API** (masked, e.g. `AQ.A…NGEg`), and never reaches the browser bundle. Alternatively, keep it out of the database entirely: `wrangler secret put GEMINI_API_KEY` (env secret beats the stored key).
+
+What it does:
+
+- `POST /api/admin/ai/draft` builds a prompt from your **existing titles, FAQ questions and live slugs**, then asks Gemini (structured JSON output) for a draft that must differ from every existing page: unique title/H1/meta, 4-5 new FAQs, and at least one concrete differentiator (device-specific steps, edge cases, troubleshooting). No invented stats, reviews, or user counts; no "written by AI" phrasing; no affiliate claims; target language (en/fr/ar).
+- The draft lands in the form for **review**. Nothing is auto-published — you edit, then save (status defaults to `draft`). The server reports warnings (e.g., field below validation minimum) and enforces the same uniqueness/length rules on save (409/400).
+- Drafts pass through the same sanitizer + validation as hand-written content before they can be saved.
+- Free-tier quota is protected by an 8-requests/minute admin limiter; upstream 429s map to a friendly "quota" message. Upstream errors never expose the key, provider internals, or stack traces.
+- Switch models (e.g. to `gemini-2.5-flash` or `gemini-3.6-flash`) when a model is unavailable in your region or its quota is exhausted — each model has its own free quota. If generation is refused, the error names the upstream HTTP status: check the key is complete, remove any website/IP restrictions on the key in AI Studio (server calls come from Cloudflare), or try another model.
+
+This keeps content human-reviewed: Google's scaled-content-abuse policy is about publishing low-value pages at scale, and the review step plus DB-level uniqueness rules is the guardrail.

@@ -24,7 +24,10 @@ import { renderToolPage, renderGuide, renderStaticRoute } from "./content/render
 import { trackingFromSettings, type TrackingConfig } from "./content/tracking";
 import { adsFromSettings, adsenseHeadHtml } from "./content/ads";
 import { SEO_ROUTES } from "../lib/seo-routes";
+import { cspHeaderValue } from "../lib/csp";
+import { sanitizeApiKey } from "../lib/keys";
 import { sha256Hex, hashIp } from "./db/hash";
+import { aiConfig, getAiProvider, AiError, maskApiKey, DEFAULT_AI_MODEL, type AiDraft, type AiFaq } from "./ai";
 
 interface Env extends DbEnv {
   ASSETS?: { fetch: (req: Request) => Promise<Response> };
@@ -38,12 +41,18 @@ interface Env extends DbEnv {
   ENVIRONMENT?: string;
   ADMIN_DEV_TOKEN?: string;
   IP_HASH_SALT?: string;
+  // AI content generation (server-only; never exposed to the client)
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
+  AI_PROVIDER?: string;
 }
 
 const resolveCache = new MemoryCache<ResolvedPost>(300_000);
 const resolveLimiter = new RateLimiter(20, 60_000);
 const downloadLimiter = new RateLimiter(30, 60_000);
 const adminLoginLimiter = new RateLimiter(5, 60_000);
+// AI drafts cost free-tier quota (≈1,500/day): keep admin generation conservative.
+const aiLimiter = new RateLimiter(8, 60_000);
 
 function siteUrl(env: Env, req: Request): string {
   const fromEnv = (env.SITE_URL || "").trim().replace(/\/$/, "");
@@ -51,16 +60,28 @@ function siteUrl(env: Env, req: Request): string {
   return new URL(req.url).origin;
 }
 
+/**
+ * `script-src 'self'` blocks inline scripts, which silently killed the theme
+ * bootstrap in index.html (wrong-theme flash, stored dark preference ignored).
+ * A hash keeps responses cacheable (a per-request nonce would not).
+ *
+ * Dev exception: Vite injects its own inline scripts (React Refresh preamble,
+ * HMR client) whose hash is not in this policy, and the dev runtime needs
+ * `eval` for source maps. Sending the production CSP on `npm run dev` crashed
+ * hydration ("@vitejs/plugin-react can't detect preamble") and left the page
+ * as unstyled SSR text. The policy is therefore production-only; `wrangler dev`
+ * runs the production build, so it still exercises the real headers.
+ */
+const IS_DEV = import.meta.env.DEV;
+
 function securityHeaders(): Headers {
   const h = new Headers();
   h.set("X-Content-Type-Options", "nosniff");
   h.set("Referrer-Policy", "strict-origin-when-cross-origin");
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   h.set("Strict-Transport-Security", "max-age=31536000");
-  h.set(
-    "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' https: data:; media-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
-  );
+  const csp = cspHeaderValue({ isDev: IS_DEV });
+  if (csp) h.set("Content-Security-Policy", csp);
   return h;
 }
 
@@ -276,19 +297,33 @@ export function sanitizePost(post: ResolvedPost): ResolvedPost {
 }
 
 // Sitemap/robots built lazily to avoid importing client-only modules.
+// Single source of truth: derive from the SEO_ROUTES registry so the sitemap
+// can never drift from the canonical route list (see scripts/gen-static-seo.mjs).
 function seoRoutes(): { path: string }[] {
-  return [
-    { path: "/" },
-    { path: "/threads-video-downloader" },
-    { path: "/threads-photo-downloader" },
-    { path: "/threads-carousel-downloader" },
-    { path: "/how-to-download-threads-videos" },
-    { path: "/faq" },
-    { path: "/privacy" },
-    { path: "/terms" },
-    { path: "/contact" },
-    { path: "/blog" },
-  ];
+  return SEO_ROUTES.map((r) => ({ path: r.path }));
+}
+
+/**
+ * Admin is a client-side app (login + dashboards) and must never be indexed.
+ * Asset routing no longer has an SPA fallback, so the Worker serves the shell
+ * explicitly and marks the response noindex at the HTTP level.
+ */
+async function adminShell(req: Request, env: Env): Promise<Response> {
+  const template = await appTemplate(req, env);
+  if (!template) return notFoundPage(siteUrl(env, req));
+  const h = securityHeaders();
+  h.set("content-type", "text/html; charset=utf-8");
+  h.set("cache-control", "no-store");
+  h.set("X-Robots-Tag", "noindex, nofollow");
+  return new Response(req.method === "HEAD" ? null : template, { status: 200, headers: h });
+}
+
+/** Percent-encode path segments for <loc> (sitemap spec; Arabic slugs). */
+export function encodePath(pathname: string): string {
+  return pathname
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 /** Canonical path: strip trailing slashes (except root). Pure, unit-tested. */
@@ -298,12 +333,21 @@ export function canonicalPath(pathname: string): string {
 }
 
 export function sitemapXml(origin: string, extra: { kind: string; slug: string; updated_at: string }[] = []): string {
-  const base = seoRoutes().map((r) => `  <url><loc>${origin.replace(/\/$/, "")}${r.path}</loc></url>`);
+  const root = origin.replace(/\/$/, "");
+  const seen = new Set<string>();
+  const base: string[] = [];
+  const add = (loc: string, lastmod = ""): void => {
+    if (seen.has(loc)) return;
+    seen.add(loc);
+    base.push(`  <url><loc>${loc}</loc>${lastmod}</url>`);
+  };
+  // Live DB entries first so their real <lastmod> wins on collisions.
   for (const e of extra) {
     const loc = e.kind === "guide" ? `/blog/${e.slug}` : `/${e.slug}`;
     const lastmod = e.updated_at ? `<lastmod>${e.updated_at.slice(0, 10)}</lastmod>` : "";
-    base.push(`  <url><loc>${origin.replace(/\/$/, "")}${loc}</loc>${lastmod}</url>`);
+    add(`${root}${encodePath(loc)}`, lastmod);
   }
+  for (const r of seoRoutes()) add(`${root}${encodePath(r.path)}`);
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${base.join("\n")}\n</urlset>`;
 }
 
@@ -331,8 +375,9 @@ async function liveSlugs(env: Env): Promise<{ kind: "tool" | "guide"; slug: stri
   }
 }
 
-// Template (SPA shell) cache for server-rendered SEO pages.
-const templateCache = new MemoryCache<string>(300_000);
+// Template (SPA shell) cache for server-rendered SEO pages. Short TTL so a
+// deploy (new hashed asset filenames) is picked up quickly by every isolate.
+const templateCache = new MemoryCache<string>(60_000);
 
 async function appTemplate(req: Request, env: Env): Promise<string | null> {
   const cached = templateCache.get("index");
@@ -521,9 +566,12 @@ async function handleAdmin(req: Request, env: Env, pathname: string): Promise<Re
     }
     if (req.method === "GET" && pathname === "/api/admin/settings") {
       const all = await db.getSettings();
-      // Never expose the password hash through the generic settings API.
-      const { admin_password_hash: _hidden, ...safe } = all;
+      // Never expose the password hash or the AI API key through the API.
+      const { admin_password_hash: _hidden, gemini_api_key: _aiKey, ...safe } = all;
       void _hidden;
+      void _aiKey;
+      // The UI only needs to know a key exists — show a masked hint.
+      safe["gemini_key_hint"] = maskApiKey(String(all["gemini_api_key"] || ""));
       return json({ success: true, data: safe }, 200);
     }
     if (req.method === "PUT" && pathname === "/api/admin/settings") {
@@ -533,7 +581,10 @@ async function handleAdmin(req: Request, env: Env, pathname: string): Promise<Re
       } catch {
         return err("INVALID_URL", "Invalid settings payload.", 400);
       }
-      const { key, value } = body as { key?: unknown; value?: unknown };
+      let { key, value } = body as { key?: unknown; value?: unknown };
+      // Pasted keys often carry invisible characters (spaces, newlines,
+      // zero-width/bidi marks from RTL UIs) — strip before validating/storing.
+      if (key === "gemini_api_key" && typeof value === "string") value = sanitizeApiKey(value);
       if (typeof key !== "string" || typeof value !== "string" || !validateSetting(key, value)) {
         return err("INVALID_URL", "Invalid setting key or value.", 400);
       }
@@ -541,6 +592,7 @@ async function handleAdmin(req: Request, env: Env, pathname: string): Promise<Re
       // Settings drive live behavior: bust DB-backed caches so saves apply now.
       trackingCache.clear();
       adsCache.clear();
+      aiConfigCache.clear();
       return json({ success: true }, 200);
     }
     if (req.method === "PUT" && pathname === "/api/admin/password") {
@@ -570,6 +622,82 @@ async function handleAdmin(req: Request, env: Env, pathname: string): Promise<Re
       if (!currentOk) return err("UNKNOWN_ERROR", "Current password is incorrect.", 401);
       await db.updateSetting("admin_password_hash", await hashPassword(next as string));
       return json({ success: true }, 200);
+    }
+    // ---- AI draft generation (Gemini free tier) ----
+    if (req.method === "POST" && pathname === "/api/admin/ai/draft") {
+      if (!aiLimiter.allow(clientIp(req))) return rateLimited();
+      const body = asRecord(await req.json().catch(() => null));
+      const kind = body["kind"] === "tool" || body["kind"] === "guide" ? body["kind"] : null;
+      const targetKeyword = typeof body["target_keyword"] === "string" ? body["target_keyword"].trim().slice(0, 120) : "";
+      const lang = body["lang"] === "en" || body["lang"] === "fr" || body["lang"] === "ar" ? body["lang"] : "en";
+      if (!kind || targetKeyword.length < 3) {
+        return err("INVALID_URL", "Target keyword (3+ chars) and kind are required.", 400);
+      }
+      const cfg = await getAiConfig(env);
+      if (!cfg.apiKey) {
+        return err("RESOLVER_UNAVAILABLE", "AI generator is not configured. Add a Gemini API key in the engine settings.", 503);
+      }
+      // Uniqueness + internal-link context from live DB content.
+      const [tools, guides] = await Promise.all([db.listToolPages(), db.listGuides()]);
+      const all = [...tools, ...guides];
+      const existingTitles = all.map((r) => r.title).slice(0, 40);
+      const existingFaqQuestions = all.flatMap((r) => r.faqs.map((f) => f.q)).slice(0, 40);
+      const liveSlugs = [
+        ...tools.filter((t) => t.status === "live"),
+        ...guides.filter((g) => g.status === "live"),
+      ];
+      const allowedSlugs = liveSlugs.map((r) => r.slug).slice(0, 40);
+      const linkPaths = [
+        ...tools.filter((t) => t.status === "live").slice(0, 20).map((t) => `/${t.slug}`),
+        ...guides.filter((g) => g.status === "live").slice(0, 20).map((g) => `/blog/${g.slug}`),
+      ];
+      let draft: AiDraft;
+      try {
+        draft = await getAiProvider(cfg).generate({ kind, targetKeyword, lang, context: { existingTitles, existingFaqQuestions, allowedSlugs, linkPaths } });
+      } catch (e) {
+        if (e instanceof AiError) {
+          const status = e.code === "AI_NOT_CONFIGURED" ? 503 : e.code === "AI_QUOTA" ? 429 : 502;
+          // Admin-only endpoint: include Google's sanitized message so the
+          // admin can tell a bad key apart from a model/quota problem.
+          const message = e.detail ? `${e.message} [Provider: ${e.detail}]` : e.message;
+          return err("RESOLVER_UNAVAILABLE", message, status);
+        }
+        return err("UNKNOWN_ERROR", MESSAGES.UNKNOWN_ERROR, 500);
+      }
+      // Slug hygiene: reserved names always get a suffix, collisions get -2, -3…
+      const taken = new Set([...all.map((r) => r.slug), ...RESERVED_SLUGS]);
+      let slug = draft.slug;
+      if (taken.has(slug)) {
+        let n = 2;
+        while (taken.has(`${slug}-${n}`)) n += 1;
+        slug = `${slug}-${n}`;
+      }
+      draft = { ...draft, slug } as AiDraft;
+      // Soft quality report (hard validation still runs on save).
+      const warnings: string[] = [
+        "AI draft inserted. Review every field before saving — publish manually only when you are happy with the quality.",
+      ];
+      const input: Record<string, unknown> = {
+        slug,
+        lang,
+        target_keyword: targetKeyword,
+        title: draft.title,
+        description: draft.description,
+        h1: draft.h1,
+        faqs: draft.faqs as AiFaq[],
+        related_slugs: draft.related_slugs,
+        status: "draft",
+      };
+      if (draft.kind === "tool") {
+        input["badge"] = draft.badge;
+        input["intro"] = draft.intro;
+      } else {
+        input["body"] = draft.body;
+      }
+      const validation = draft.kind === "tool" ? validateToolPage(input) : validateGuide(input);
+      if (validation) warnings.push(`Validation warning: ${validation}`);
+      if (draft.related_slugs.length === 0) warnings.push("No related pages available yet — cross-links are auto-suggested at render time.");
+      return json({ success: true, data: { draft, warnings } }, 200);
     }
     // ---- SEO content engines (tool pages + guides) ----
     if (pathname === "/api/admin/tool-pages" && req.method === "GET") {
@@ -687,6 +815,26 @@ async function linkPool(env: Env): Promise<LinkNode[]> {
 // Tracking + ads config cache (DB-backed, no rebuild needed).
 const trackingCache = new MemoryCache<TrackingConfig>(60_000);
 const adsCache = new MemoryCache<ReturnType<typeof adsFromSettings>>(60_000);
+const aiConfigCache = new MemoryCache<ReturnType<typeof aiConfig>>(60_000);
+
+async function getAiConfig(env: Env) {
+  const envKey = (env.GEMINI_API_KEY || "").trim();
+  const envModel = (env.GEMINI_MODEL || "").trim();
+  if (envKey || envModel) {
+    return aiConfig({ GEMINI_API_KEY: envKey, GEMINI_MODEL: envModel }, {});
+  }
+  const cached = aiConfigCache.get("ai");
+  if (cached) return cached;
+  const db = getDb(env);
+  if (!db) return { apiKey: "", model: DEFAULT_AI_MODEL };
+  try {
+    const cfg = aiConfig({}, await db.getSettings());
+    aiConfigCache.set("ai", cfg);
+    return cfg;
+  } catch {
+    return { apiKey: "", model: DEFAULT_AI_MODEL };
+  }
+}
 
 async function getTracking(env: Env): Promise<TrackingConfig | undefined> {
   const cached = trackingCache.get("tracking");
@@ -726,20 +874,29 @@ function htmlSecurityHeaders(tracking: TrackingConfig | undefined, adsAuto = fal
   if (adsAuto) vendors.push("https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net");
   const hasCustom = tracking.head_custom.length > 0 || tracking.body_custom.length > 0;
   if (vendors.length === 0 && !hasCustom) return h;
-  const scriptSrc = ["'self'", ...vendors];
+  const scriptSrc = [...vendors];
   if (hasCustom) scriptSrc.push("'unsafe-inline'");
-  const connectSrc = ["'self'", ...vendors];
-  const imgSrc = ["'self'", "https:", "data:", ...vendors];
-  h.set(
-    "Content-Security-Policy",
-    `default-src 'self'; img-src ${imgSrc.join(" ")}; media-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc.join(" ")}; connect-src ${connectSrc.join(" ")}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
-  );
+  const csp = cspHeaderValue({
+    isDev: IS_DEV,
+    scriptSrc,
+    connectSrc: vendors,
+    imgSrc: vendors,
+  });
+  if (csp) h.set("Content-Security-Policy", csp);
   return h;
 }
 
 function publicContentHeaders(tracking?: TrackingConfig, adsAuto = false): Headers {
   const h = htmlSecurityHeaders(tracking, adsAuto);
   h.set("cache-control", "public, max-age=60");
+  return h;
+}
+
+/** Public, cacheable JSON payloads are never search results. */
+function publicJsonHeaders(): Headers {
+  const h = publicContentHeaders();
+  h.set("content-type", "application/json; charset=utf-8");
+  h.set("X-Robots-Tag", "noindex, nofollow");
   return h;
 }
 
@@ -752,16 +909,29 @@ async function pageAdsHead(env: Env): Promise<{ html: string; auto: boolean }> {
 
 /** Server rendering for built-in static SEO routes (no DB required). */
 export async function handleStaticSeo(req: Request, env: Env, pathname: string): Promise<Response | null> {
-  if (req.method !== "GET") return null;
+  // HEAD must return the same status/headers as GET (crawlers, monitors, proxies).
+  const wantsBody = req.method === "GET";
+  if (!wantsBody && req.method !== "HEAD") return null;
   const route = SEO_ROUTES.find((r) => r.path === pathname);
   if (!route) return null;
   const origin = siteUrl(env, req).replace(/\/$/, "");
   const template = await appTemplate(req, env);
   const tracking = await getTracking(env);
   const ads = await pageAdsHead(env);
+  // The /blog hub lists live guides (best-effort: empty when DB is down).
+  let guides: { slug: string; title: string }[] | undefined;
+  if (pathname === "/blog") {
+    try {
+      const db = getDb(env);
+      guides = db ? (await db.listGuides()).filter((g) => g.status === "live").map((g) => ({ slug: g.slug, title: g.title })) : [];
+    } catch {
+      guides = [];
+    }
+  }
   const h = publicContentHeaders(tracking, ads.auto);
   h.set("content-type", "text/html; charset=utf-8");
-  return new Response(renderStaticRoute(template, origin, "/og-image.svg", route, tracking, ads.html), { status: 200, headers: h });
+  const html = renderStaticRoute(template, origin, "/og-image.png", route, tracking, ads.html, guides);
+  return new Response(wantsBody ? html : null, { status: 200, headers: h });
 }
 
 export async function handlePublicContent(req: Request, env: Env, pathname: string): Promise<Response | null> {
@@ -774,14 +944,37 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   } catch {
     /* keep raw */
   }
+  // Public guides index for the /blog hub (live only, light public fields).
+  if (decoded === "/api/content/guides" && req.method === "GET") {
+    try {
+      const guides = (await db.listGuides())
+        .filter((g) => g.status === "live")
+        .slice(0, 100)
+        .map((g) => ({ slug: g.slug, title: g.title, description: g.description, lang: g.lang, updated_at: g.updated_at ?? "" }));
+      const h = publicJsonHeaders();
+      return new Response(JSON.stringify({ success: true, data: guides }), { status: 200, headers: h });
+    } catch {
+      return null;
+    }
+  }
+  // Public tool-pages index for sitemap enrichment (live only, light fields).
+  if (decoded === "/api/content/tools" && req.method === "GET") {
+    try {
+      const tools = (await db.listToolPages())
+        .filter((t) => t.status === "live")
+        .slice(0, 100)
+        .map((t) => ({ slug: t.slug, title: t.title, description: t.description, lang: t.lang, updated_at: t.updated_at ?? "" }));
+      return new Response(JSON.stringify({ success: true, data: tools }), { status: 200, headers: publicJsonHeaders() });
+    } catch {
+      return null;
+    }
+  }
   const toolApi = decoded.match(/^\/api\/content\/tool\/([A-Za-z0-9\u0600-\u06FF\-_]+)$/u);
   if (toolApi && req.method === "GET") {
     try {
       const page = await db.getToolPageBySlug(toolApi[1]);
       if (!page || page.status !== "live") return null;
-      const h = publicContentHeaders();
-      h.set("content-type", "application/json; charset=utf-8");
-      return new Response(JSON.stringify({ success: true, data: page }), { status: 200, headers: h });
+      return new Response(JSON.stringify({ success: true, data: page }), { status: 200, headers: publicJsonHeaders() });
     } catch {
       return null;
     }
@@ -791,14 +984,13 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
     try {
       const guide = await db.getGuideBySlug(guideApi[1]);
       if (!guide || guide.status !== "live") return null;
-      const h = publicContentHeaders();
-      h.set("content-type", "application/json; charset=utf-8");
-      return new Response(JSON.stringify({ success: true, data: guide }), { status: 200, headers: h });
+      return new Response(JSON.stringify({ success: true, data: guide }), { status: 200, headers: publicJsonHeaders() });
     } catch {
       return null;
     }
   }
-  if (req.method !== "GET") return null;
+  const wantsBody = req.method === "GET";
+  if (!wantsBody && req.method !== "HEAD") return null;
   // Server-rendered SEO pages for live DB slugs (crawlable without JS).
   const origin = siteUrl(env, req).replace(/\/$/, "");
   const tracking = await getTracking(env);
@@ -817,7 +1009,8 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
       const ads = await pageAdsHead(env);
       const h = publicContentHeaders(tracking, ads.auto);
       h.set("content-type", "text/html; charset=utf-8");
-      return new Response(renderGuide(template, origin, "/og-image.svg", guide, related, tracking, ads.html), { status: 200, headers: h });
+      const html = renderGuide(template, origin, "/og-image.png", guide, related, tracking, ads.html);
+      return new Response(wantsBody ? html : null, { status: 200, headers: h });
     } catch {
       return null;
     }
@@ -829,7 +1022,8 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
     const ads = await pageAdsHead(env);
     const h = publicContentHeaders(tracking, ads.auto);
     h.set("content-type", "text/html; charset=utf-8");
-    return new Response(renderToolPage(template, origin, "/og-image.svg", page, related, tracking, ads.html), { status: 200, headers: h });
+    const html = renderToolPage(template, origin, "/og-image.png", page, related, tracking, ads.html);
+    return new Response(wantsBody ? html : null, { status: 200, headers: h });
   } catch {
     return null;
   }
@@ -899,17 +1093,22 @@ export default {
     if (url.pathname.startsWith("/api/admin/")) {
       return handleAdmin(req, env, url.pathname);
     }
-    if (req.method === "GET" && url.pathname === "/sitemap.xml") {
+    // GET and HEAD (crawlers/proxies preflight with HEAD) both serve the XML.
+    // Short 300s edge TTL: sitemap reflects live slugs, and a short TTL bounds
+    // the lifetime of any stale copy held by third-party proxies.
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/sitemap.xml") {
       const h = securityHeaders();
       h.set("content-type", "application/xml; charset=utf-8");
-      h.set("cache-control", "public, max-age=3600");
-      return new Response(sitemapXml(siteUrl(env, req), await liveSlugs(env)), { status: 200, headers: h });
+      h.set("cache-control", "public, max-age=300");
+      const body = sitemapXml(siteUrl(env, req), await liveSlugs(env));
+      return new Response(req.method === "HEAD" ? null : body, { status: 200, headers: h });
     }
-    if (req.method === "GET" && url.pathname === "/robots.txt") {
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/robots.txt") {
       const h = securityHeaders();
       h.set("content-type", "text/plain; charset=utf-8");
-      h.set("cache-control", "public, max-age=3600");
-      return new Response(robotsTxt(siteUrl(env, req)), { status: 200, headers: h });
+      h.set("cache-control", "public, max-age=300");
+      const body = robotsTxt(siteUrl(env, req));
+      return new Response(req.method === "HEAD" ? null : body, { status: 200, headers: h });
     }
     if (url.pathname.startsWith("/api/")) {
       // Public content JSON APIs (live slugs) before the generic API 404.
@@ -918,9 +1117,7 @@ export default {
       // Public tracking bootstrap for the SPA shell (IDs only — secrets never live here).
       if (req.method === "GET" && url.pathname === "/api/tracking.json") {
         const t = (await getTracking(env)) ?? trackingFromSettings({});
-        const h = securityHeaders();
-        h.set("content-type", "application/json; charset=utf-8");
-        h.set("cache-control", "public, max-age=60");
+        const h = publicJsonHeaders();
         return new Response(
           JSON.stringify({
             ga4_id: t.ga4_id,
@@ -938,9 +1135,7 @@ export default {
       // Public ads state for the SPA shell (slot toggles + publisher ID only).
       if (req.method === "GET" && url.pathname === "/api/ads.json") {
         const a = (await getAds(env)) ?? adsFromSettings({});
-        const h = securityHeaders();
-        h.set("content-type", "application/json; charset=utf-8");
-        h.set("cache-control", "public, max-age=60");
+        const h = publicJsonHeaders();
         return new Response(
           JSON.stringify({ pubId: a.pubId, autoAds: a.autoAds, slots: a.slots }),
           { status: 200, headers: h },
@@ -968,12 +1163,16 @@ export default {
       const dest = canonicalPath(url.pathname) + url.search;
       return Response.redirect(new URL(dest, url.origin).toString(), 308);
     }
+    // Admin SPA: client-side app served the shell with an HTTP-level noindex.
+    // Asset routing has no SPA fallback, so this must be explicit.
+    if ((req.method === "GET" || req.method === "HEAD") && (url.pathname === "/admin" || url.pathname.startsWith("/admin/"))) {
+      return adminShell(req, env);
+    }
     // Static assets / SPA fallback.
-    // /admin/* are app routes served the shell (client-side noindex).
     // File-like paths go to assets (their own 404s are normal).
     // Anything else unknown is a real 404 — never a soft-404 shell.
     if (!env.ASSETS) return err("UNKNOWN_ERROR", MESSAGES.UNKNOWN_ERROR, 404);
-    if (!url.pathname.startsWith("/admin/") && !/\/[^/]+\.[a-z0-9]+$/i.test(url.pathname)) {
+    if (!/\/[^/]+\.[a-z0-9]+$/i.test(url.pathname)) {
       return notFoundPage(siteUrl(env, req));
     }
     try {

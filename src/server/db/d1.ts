@@ -15,6 +15,7 @@ interface ToolRow {
   faqs: string;
   related_slugs: string;
   status: string;
+  updated_at?: string | null;
 }
 
 interface GuideRow {
@@ -29,6 +30,7 @@ interface GuideRow {
   faqs: string;
   related_slugs: string;
   status: string;
+  updated_at?: string | null;
 }
 
 function toTool(r: ToolRow): ToolPage {
@@ -45,6 +47,7 @@ function toTool(r: ToolRow): ToolPage {
     faqs: parseFaqs(r.faqs),
     related_slugs: parseSlugList(r.related_slugs),
     status: r.status,
+    updated_at: r.updated_at ?? "",
   };
 }
 
@@ -61,6 +64,7 @@ function toGuide(r: GuideRow): Guide {
     faqs: parseFaqs(r.faqs),
     related_slugs: parseSlugList(r.related_slugs),
     status: r.status,
+    updated_at: r.updated_at ?? "",
   };
 }
 

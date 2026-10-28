@@ -28,6 +28,7 @@ import { cspHeaderValue } from "../lib/csp";
 import { sanitizeApiKey } from "../lib/keys";
 import { sha256Hex, hashIp } from "./db/hash";
 import { aiConfig, getAiProvider, AiError, maskApiKey, DEFAULT_AI_MODEL, type AiDraft, type AiFaq } from "./ai";
+import { validateContact, type ContactErrorCode, type ContactField } from "./contact";
 
 interface Env extends DbEnv {
   ASSETS?: { fetch: (req: Request) => Promise<Response> };
@@ -41,6 +42,11 @@ interface Env extends DbEnv {
   ENVIRONMENT?: string;
   ADMIN_DEV_TOKEN?: string;
   IP_HASH_SALT?: string;
+  /**
+   * Optional public contact address (e.g. a verified support mailbox).
+   * Only shown when configured — the site must never invent an address.
+   */
+  CONTACT_EMAIL?: string;
   // AI content generation (server-only; never exposed to the client)
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
@@ -51,6 +57,8 @@ const resolveCache = new MemoryCache<ResolvedPost>(300_000);
 const resolveLimiter = new RateLimiter(20, 60_000);
 const downloadLimiter = new RateLimiter(30, 60_000);
 const adminLoginLimiter = new RateLimiter(5, 60_000);
+// Public contact form: a human sends one or two messages, not a stream.
+const contactLimiter = new RateLimiter(3, 10 * 60_000);
 // AI drafts cost free-tier quota (≈1,500/day): keep admin generation conservative.
 const aiLimiter = new RateLimiter(8, 60_000);
 
@@ -396,6 +404,7 @@ export function sitemapXml(origin: string, extra: { kind: string; slug: string; 
 // Static public paths that tool slugs must never shadow.
 const RESERVED_SLUGS = new Set([
   "admin", "api", "blog", "faq", "privacy", "terms", "contact",
+  "about", "disclaimer", "how-to-use",
   "threads-video-downloader", "threads-photo-downloader", "threads-carousel-downloader",
   "how-to-download-threads-videos", "sitemap.xml", "robots.txt", "favicon.svg", "og-image.svg",
 ]);
@@ -605,6 +614,19 @@ async function handleAdmin(req: Request, env: Env, pathname: string): Promise<Re
       const limit = Number(u.searchParams.get("limit") || "20");
       const offset = Number(u.searchParams.get("offset") || "0");
       return json({ success: true, data: await db.listEvents(limit, offset) }, 200);
+    }
+    // ---- Contact inbox (the delivery channel for the public form) ----
+    if (req.method === "GET" && pathname === "/api/admin/messages") {
+      const u = new URL(req.url);
+      const limit = Math.max(1, Math.min(Number(u.searchParams.get("limit") || "25") || 25, 100));
+      const offset = Math.max(0, Number(u.searchParams.get("offset") || "0") || 0);
+      return json({ success: true, data: await db.listContactMessages(limit, offset) }, 200);
+    }
+    if (req.method === "DELETE" && /^\/api\/admin\/messages\/\d+$/.test(pathname)) {
+      const id = Number(pathname.slice("/api/admin/messages/".length));
+      const deleted = await db.deleteContactMessage(id);
+      if (!deleted) return err("UNKNOWN_ERROR", "Message not found.", 404);
+      return json({ success: true }, 200);
     }
     if (req.method === "GET" && pathname === "/api/admin/settings") {
       const all = await db.getSettings();
@@ -1073,6 +1095,149 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   }
 }
 
+/**
+ * Availability of the contact inbox.
+ *
+ * Only successful probes are cached (60s, per database binding) so the page
+ * recovers on the next request once the migration is applied instead of
+ * staying broken for a cache lifetime. Keyed per database handle so a second
+ * environment (local tests, staged DB) never inherits another's answer.
+ */
+const contactAvailCache = new MemoryCache<boolean>(60_000);
+const dbHandleIds = new WeakMap<object, number>();
+let nextDbHandleId = 1;
+
+function dbFingerprint(env: Env): string {
+  if ((env.DB_PROVIDER || "").toLowerCase() === "d1" && env.ADMIN_DB) {
+    const handle = env.ADMIN_DB as unknown as object;
+    let id = dbHandleIds.get(handle);
+    if (!id) {
+      id = nextDbHandleId++;
+      dbHandleIds.set(handle, id);
+    }
+    return `d1:${id}`;
+  }
+  return `supabase:${env.SUPABASE_URL || "unset"}`;
+}
+
+function contactEmail(env: Env): string {
+  const raw = (env.CONTACT_EMAIL || "").trim();
+  return /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(raw) && raw.length <= 254 ? raw : "";
+}
+
+async function contactInboxReady(env: Env): Promise<boolean> {
+  const key = dbFingerprint(env);
+  if (contactAvailCache.get(key)) return true;
+  let accepting = false;
+  try {
+    const db = getDb(env);
+    if (db) {
+      // Reading an empty table is the cheapest real availability probe: it
+      // returns [] when the migration ran and throws when it did not.
+      await db.listContactMessages(1, 0);
+      accepting = true;
+    }
+  } catch {
+    accepting = false;
+  }
+  if (accepting) contactAvailCache.set(key, true);
+  return accepting;
+}
+
+function contactFail(code: ContactErrorCode, message: string, status: number, field?: ContactField): Response {
+  const h = securityHeaders();
+  h.set("content-type", "application/json; charset=utf-8");
+  h.set("cache-control", "no-store");
+  h.set("X-Robots-Tag", "noindex, nofollow");
+  if (status === 429) h.set("retry-after", "600");
+  const payload = { success: false, error: { code, message, ...(field ? { field } : {}) } };
+  return new Response(JSON.stringify(payload), { status, headers: h });
+}
+
+/**
+ * Public contact form.
+ *
+ * GET  /api/contact → { accepting, email } so the page can hide the form
+ *                      instead of pretending to send when the inbox is not
+ *                      ready (migration missing / DB down).
+ * POST /api/contact → validates, rate-limits, stores the message.
+ *
+ * The site has no mail provider configured, so messages are stored in the
+ * database and read at /admin/messages. No credentials, no third-party mail
+ * API and no client-visible secret are involved.
+ */
+export async function handleContact(req: Request, env: Env): Promise<Response> {
+  if (req.method === "GET") {
+    const accepting = await contactInboxReady(env);
+    const h = publicJsonHeaders();
+    return new Response(JSON.stringify({ success: true, data: { accepting, email: contactEmail(env) || null } }), {
+      status: 200,
+      headers: h,
+    });
+  }
+  if (req.method !== "POST") return contactFail("UNKNOWN_ERROR", "Method not allowed.", 405);
+  if (isCrossSiteRequest(req)) return contactFail("UNKNOWN_ERROR", "Forbidden.", 403);
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
+  if (!ct.includes("application/json")) {
+    return contactFail("CONTACT_INVALID", "Expected a JSON request body.", 415);
+  }
+  const declared = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(declared) && declared > 16_384) {
+    return contactFail("CONTACT_INVALID", "Message is too long.", 413);
+  }
+  if (!contactLimiter.allow(clientIp(req))) {
+    return contactFail("RATE_LIMITED", "Too many messages were sent from this network. Please try again later.", 429);
+  }
+  // Read as text so a missing/lying Content-Length cannot make us parse an
+  // arbitrarily large body: the cap is enforced on the payload we actually got.
+  let rawBody: string;
+  try {
+    rawBody = await req.text();
+  } catch {
+    return contactFail("CONTACT_INVALID", "Invalid request body.", 400);
+  }
+  if (rawBody.length > 16_384) {
+    return contactFail("CONTACT_INVALID", "Message is too long.", 413);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(rawBody) as unknown;
+  } catch {
+    return contactFail("CONTACT_INVALID", "Invalid request body.", 400);
+  }
+  // Honeypot: hidden field that only automated submissions fill. Answer with
+  // the normal success shape so a bot cannot learn it was filtered.
+  const raw = asRecord(body);
+  if (typeof raw["website"] === "string" && raw["website"].trim() !== "") {
+    const h = securityHeaders();
+    h.set("content-type", "application/json; charset=utf-8");
+    h.set("cache-control", "no-store");
+    h.set("X-Robots-Tag", "noindex, nofollow");
+    return new Response(JSON.stringify({ success: true }), { status: 201, headers: h });
+  }
+  const parsed = validateContact(body);
+  if (!parsed.ok) return contactFail("CONTACT_INVALID", parsed.message, 400, parsed.field);
+  const db = getDb(env);
+  if (!db) {
+    return contactFail("CONTACT_UNAVAILABLE", "The contact form is temporarily unavailable. Please try again later.", 503);
+  }
+  try {
+    await db.createContactMessage({
+      ...parsed.value,
+      ipHash: await hashIp(clientIp(req), env.IP_HASH_SALT || "local-dev-salt"),
+      userAgent: req.headers.get("user-agent") || undefined,
+    });
+  } catch {
+    contactAvailCache.clear();
+    return contactFail("CONTACT_UNAVAILABLE", "The contact form is temporarily unavailable. Please try again later.", 503);
+  }
+  const h = securityHeaders();
+  h.set("content-type", "application/json; charset=utf-8");
+  h.set("cache-control", "no-store");
+  h.set("X-Robots-Tag", "noindex, nofollow");
+  return new Response(JSON.stringify({ success: true }), { status: 201, headers: h });
+}
+
 async function handleResolve(req: Request, env: Env): Promise<Response> {
   if (!resolveLimiter.allow(clientIp(req))) {
     logResolveEvent(req, env, "rate-limited", "RATE_LIMITED", 0);
@@ -1140,6 +1305,11 @@ export default {
     }
     if (url.pathname.startsWith("/api/admin/")) {
       return handleAdmin(req, env, url.pathname);
+    }
+    // Public contact form (GET availability probe, POST stores the message).
+    // Handled before the generic /api/* 404 so it never falls through to JSON.
+    if ((req.method === "GET" || req.method === "POST") && url.pathname === "/api/contact") {
+      return handleContact(req, env);
     }
     // GET and HEAD (crawlers/proxies preflight with HEAD) both serve the XML.
     // Short 300s edge TTL: sitemap reflects live slugs, and a short TTL bounds

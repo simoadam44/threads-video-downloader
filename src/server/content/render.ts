@@ -7,6 +7,8 @@
 import type { ToolPage, Guide, LinkNode } from "./types";
 import { trackingHeadHtml, trackingBodyHtml, robotsMetaContent, canonicalWithBase, type TrackingConfig } from "./tracking";
 import { FAQ_ITEMS } from "../../lib/faq";
+import { infoPageFor, type InfoBlock } from "../../lib/info-pages";
+import { toolContentFor } from "../../lib/tool-content";
 
 export function escapeHtml(s: string): string {
   return s
@@ -145,7 +147,7 @@ export function siteHeaderHtml(): string {
     `<a href="/threads-video-downloader">Video Downloader</a>` +
     `<a href="/threads-photo-downloader">Photo Downloader</a>` +
     `<a href="/threads-carousel-downloader">Carousel Downloader</a>` +
-    `<a href="/how-to-download-threads-videos">How to Use</a>` +
+    `<a href="/how-to-use">How to Use</a>` +
     `<a href="/faq">FAQ</a>` +
     `<a href="/blog">Blog</a>` +
     `</nav></div></header>`
@@ -159,17 +161,44 @@ export function siteFooterHtml(): string {
     `<a href="/threads-video-downloader">Video Downloader</a> · ` +
     `<a href="/threads-photo-downloader">Photo Downloader</a> · ` +
     `<a href="/threads-carousel-downloader">Carousel Downloader</a> · ` +
-    `<a href="/how-to-download-threads-videos">How It Works</a> · ` +
+    `<a href="/how-to-use">How to Use</a> · ` +
     `<a href="/faq">FAQ</a> · ` +
     `<a href="/blog">Blog</a> · ` +
+    `<a href="/about">About</a> · ` +
     `<a href="/privacy">Privacy</a> · ` +
     `<a href="/terms">Terms</a> · ` +
+    `<a href="/disclaimer">Disclaimer</a> · ` +
     `<a href="/contact">Contact</a>` +
     `</nav>` +
     `<small>This website is an independent third-party tool and is not affiliated with or endorsed by Threads or Meta.</small>` +
     `</div></footer>`
   );
 }
+
+/** Render one shared content block (see src/lib/info-pages.ts). */
+function infoBlocksHtml(blocks: InfoBlock[]): string {
+  return blocks
+    .map((b) => {
+      switch (b.kind) {
+        case "h2":
+          return `<h2>${escapeHtml(b.text)}</h2>`;
+        case "h3":
+          return `<h3>${escapeHtml(b.text)}</h3>`;
+        case "p":
+          return `<p>${escapeHtml(b.text)}</p>`;
+        case "note":
+          return `<p class="note">${escapeHtml(b.text)}</p>`;
+        case "ul":
+          return `<ul>${b.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
+        case "ol":
+          return `<ol>${b.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ol>`;
+        default:
+          return "";
+      }
+    })
+    .join("");
+}
+
 
 export function renderShell(template: string, meta: PageMeta, contentHtml: string): string {
   let html = template;
@@ -226,30 +255,68 @@ export function renderStaticRoute(
   template: string | null,
   origin: string,
   ogImage: string,
-  route: { path: string; title: string; description: string; h1: string },
+  route: { path: string; title: string; description: string; h1: string; summary?: string },
   tracking?: TrackingConfig,
   adsHead?: string,
   guides?: { slug: string; title: string }[],
 ): string {
   const canonical = route.path === "/" ? `${origin}/` : `${origin}${route.path}`;
-  let main = `<main><p>Fast and easy</p><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
-    `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-download-threads-videos">How to download</a> · <a href="/faq">FAQ</a></p>`;
-  // /faq: put the real answers in the initial HTML (not only after hydration).
-  if (route.path === "/faq") {
-    main += `<section><h2>Common questions</h2>${FAQ_ITEMS.map(
-      (f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`,
-    ).join("")}</section>`;
+  const info = infoPageFor(route.path);
+  const tool = toolContentFor(route.path);
+  let main: string;
+  if (info) {
+    // Legal / informational pages: the same blocks rendered by React, so the
+    // crawlable HTML and the visible page cannot drift. Before this, the
+    // server output was a single sentence — thin content for search engines.
+    const updated = info.updated ? `<p><small>Last updated: ${escapeHtml(info.updated)}</small></p>` : "";
+    const related = info.related?.length
+      ? `<nav aria-label="Related pages"><h2>Related pages</h2><ul>${info.related
+          .map((r) => `<li><a href="${escapeHtml(r.href)}">${escapeHtml(r.label)}</a></li>`)
+          .join("")}</ul></nav>`
+      : "";
+    main =
+      `<main><h1>${escapeHtml(route.h1)}</h1>` +
+      `<p>${escapeHtml(info.intro)}</p>${updated}` +
+      infoBlocksHtml(info.blocks) +
+      related +
+      `</main>`;
+  } else {
+    main = `<main><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
+      (route.summary ? `<p>${escapeHtml(route.summary)}</p>` : "");
+    // The three primary tool pages carry long-form copy from the shared
+    // module so the pre-rendered HTML is not a single paragraph.
+    if (tool) {
+      main += tool.sections
+        .map(
+          (s) =>
+            `<section><h2>${escapeHtml(s.h2)}</h2>` +
+            s.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+            (s.bullets?.length
+              ? `<ul>${s.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>`
+              : "") +
+            `</section>`,
+        )
+        .join("");
+      main += faqHtml(tool.faqs);
+    }
+    main += `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-use">How to use</a> · <a href="/faq">FAQ</a></p>`;
+    // /faq: put the real answers in the initial HTML (not only after hydration).
+    if (route.path === "/faq") {
+      main += `<section><h2>Common questions</h2>${FAQ_ITEMS.map(
+        (f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`,
+      ).join("")}</section>`;
+    }
+    // The /blog hub lists live guides so crawlers discover every article.
+    if (route.path === "/blog" && guides && guides.length > 0) {
+      main += `<nav aria-label="Latest guides"><h2>Latest guides</h2><ul>` +
+        guides
+          .slice(0, 100)
+          .map((g) => `<li><a href="/blog/${escapeHtml(g.slug)}">${escapeHtml(g.title)}</a></li>`)
+          .join("") +
+        `</ul></nav>`;
+    }
+    main += `</main>`;
   }
-  // The /blog hub lists live guides so crawlers discover every article.
-  if (route.path === "/blog" && guides && guides.length > 0) {
-    main += `<nav aria-label="Latest guides"><h2>Latest guides</h2><ul>` +
-      guides
-        .slice(0, 100)
-        .map((g) => `<li><a href="/blog/${escapeHtml(g.slug)}">${escapeHtml(g.title)}</a></li>`)
-        .join("") +
-      `</ul></nav>`;
-  }
-  main += `</main>`;
   const content = `${siteHeaderHtml()}${main}${siteFooterHtml()}`;
   const schemas = [
     JSON.stringify({
@@ -260,6 +327,33 @@ export function renderStaticRoute(
     }),
   ];
   if (route.path === "/faq") schemas.push(faqJsonLd(FAQ_ITEMS));
+  if (tool) {
+    // Visible Q/A on the page, so the matching structured data is legitimate.
+    schemas.push(faqJsonLd(tool.faqs));
+    schemas.push(
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${origin}/` },
+          { "@type": "ListItem", position: 2, name: route.h1, item: canonical },
+        ],
+      }),
+    );
+  }
+  // Breadcrumbs only where the trail is factually a trail (Home → page).
+  if (info) {
+    schemas.push(
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: `${origin}/` },
+          { "@type": "ListItem", position: 2, name: route.h1, item: canonical },
+        ],
+      }),
+    );
+  }
   const meta: PageMeta = {
     title: route.title,
     description: route.description,

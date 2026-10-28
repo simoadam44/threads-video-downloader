@@ -58,7 +58,7 @@ export function Header() {
         </Link>
         <nav className="nav-links" aria-label="Main">
           <Link to="/">{t.header.home}</Link>
-          <Link to="/how-to-download-threads-videos">{t.header.howTo}</Link>
+          <Link to="/how-to-use">{t.header.howTo}</Link>
           <Link to="/threads-video-downloader">{t.header.features}</Link>
           <Link to="/faq">{t.header.faq}</Link>
           <Link to="/blog">{t.header.blog}</Link>
@@ -85,29 +85,33 @@ export function Footer() {
           <div>
             <strong>Quick Links</strong>
             <br />
-            <Link to="/">Home</Link>
-            <br />
-            <Link to="/how-to-download-threads-videos">How to Use</Link>
+            <Link to="/how-to-use">How to Use</Link>
             <br />
             <Link to="/faq">FAQ</Link>
             <br />
             <Link to="/blog">Blog</Link>
           </div>
           <div>
-            <strong>Support</strong>
+            <strong>Legal &amp; Support</strong>
             <br />
             <Link to="/contact">Contact Us</Link>
             <br />
             <Link to="/privacy">Privacy Policy</Link>
             <br />
             <Link to="/terms">Terms of Use</Link>
+            <br />
+            <Link to="/disclaimer">Disclaimer</Link>
           </div>
           <div>
             <strong>About</strong>
             <br />
-            <Link to="/contact">About Us</Link>
+            <Link to="/about">About Us</Link>
             <br />
-            <Link to="/blog">Blog</Link>
+            <Link to="/threads-video-downloader">Video Downloader</Link>
+            <br />
+            <Link to="/threads-photo-downloader">Photo Downloader</Link>
+            <br />
+            <Link to="/threads-carousel-downloader">Carousel Downloader</Link>
           </div>
         </div>
         <small>{t.footer.disclaimer}</small>

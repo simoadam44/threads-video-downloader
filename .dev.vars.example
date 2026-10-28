@@ -4,6 +4,8 @@ ENVIRONMENT=dev
 DB_PROVIDER=d1
 ADMIN_DEV_TOKEN=change-me-local-only
 IP_HASH_SALT=local-dev-salt
+# Optional public support address shown on /contact (leave empty to use the form only):
+# CONTACT_EMAIL=help@example.com
 # Supabase local (needs Docker) — alternative to D1, leave empty when using D1:
 # SUPABASE_URL=http://127.0.0.1:54321
 # SUPABASE_ANON_KEY=

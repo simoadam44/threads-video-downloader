@@ -1,6 +1,30 @@
-import type { DbProvider, ResolveEventInput, StatsSummary } from "./types";
+import type { DbProvider, ResolveEventInput, StatsSummary, ContactMessageInput, ContactMessage } from "./types";
 import type { ToolPage, ToolPageInput, Guide, GuideInput } from "../content/types";
 import { parseFaqs, parseSlugList } from "../content/types";
+
+interface ContactRow {
+  id: number;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  ip_hash: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+function toContact(r: ContactRow): ContactMessage {
+  return {
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    subject: r.subject,
+    message: r.message,
+    ipHash: r.ip_hash ?? undefined,
+    userAgent: r.user_agent ?? undefined,
+    created_at: r.created_at,
+  };
+}
 
 interface ToolRow {
   id: number;
@@ -260,5 +284,41 @@ export class D1Db implements DbProvider {
     for (const r of tools.results ?? []) out.push({ kind: "tool", slug: r.slug, updated_at: r.updated_at ?? "" });
     for (const r of guides.results ?? []) out.push({ kind: "guide", slug: r.slug, updated_at: r.updated_at ?? "" });
     return out;
+  }
+
+  // ---- Contact inbox ----------------------------------------------------
+  async createContactMessage(input: ContactMessageInput): Promise<ContactMessage> {
+    const res = await this.db
+      .prepare(
+        "insert into contact_messages (name, email, subject, message, ip_hash, user_agent) values (?, ?, ?, ?, ?, ?) returning *",
+      )
+      .bind(
+        input.name.slice(0, 80),
+        input.email.slice(0, 254),
+        input.subject.slice(0, 120),
+        input.message.slice(0, 4000),
+        input.ipHash?.slice(0, 128) ?? null,
+        input.userAgent?.slice(0, 256) ?? null,
+      )
+      .first<ContactRow>();
+    if (!res) throw new Error("insert failed");
+    return toContact(res);
+  }
+
+  async listContactMessages(limit: number, offset: number): Promise<ContactMessage[]> {
+    const safeLimit = Math.max(0, Math.min(limit, 100));
+    const res = await this.db
+      .prepare("select * from contact_messages order by created_at desc limit ? offset ?")
+      .bind(safeLimit, Math.max(0, offset))
+      .all<ContactRow>();
+    return (res.results ?? []).map(toContact);
+  }
+
+  async deleteContactMessage(id: number): Promise<boolean> {
+    const res = (await this.db
+      .prepare("delete from contact_messages where id = ?")
+      .bind(id)
+      .run()) as { meta?: { changes?: number } };
+    return Boolean(res.meta?.changes);
   }
 }

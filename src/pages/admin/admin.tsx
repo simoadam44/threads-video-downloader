@@ -27,6 +27,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       <nav style={{ display: "flex", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
         <Link to="/admin">Overview</Link>
         <Link to="/admin/requests">Requests</Link>
+        <Link to="/admin/messages">Messages</Link>
         <Link to="/admin/keywords-tools">Keywords &amp; Tools</Link>
         <Link to="/admin/blog-guides">Blog &amp; Guides</Link>
         <Link to="/admin/seo-webmaster">SEO &amp; Webmaster</Link>
@@ -208,8 +209,90 @@ export function AdminRequests() {
   );
 }
 
-const SETTING_LABELS: Record<string, string> = {
-  resolver_provider: "Resolver provider (opensource | mock | external-optional)",
+export function AdminMessages() {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof adminApi.messages>>>([]);
+  const [page, setPage] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const nav = useNavigate();
+
+  useEffect(() => {
+    adminApi
+      .messages(25, page * 25)
+      .then(setRows)
+      .catch((err) => {
+        if (String(err.message).includes("401")) nav("/admin/login");
+        else setError(err instanceof Error ? err.message : "Failed to load messages.");
+      });
+  }, [page, nav]);
+
+  async function remove(id: number) {
+    if (!window.confirm("Delete this message permanently?")) return;
+    try {
+      await adminApi.deleteMessage(id);
+      setRows((prev) => prev.filter((r) => r.id !== id));
+      setNotice(`Message #${id} deleted.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete the message.");
+    }
+  }
+
+  return (
+    <AdminShell>
+      <h1>Messages</h1>
+      <p className="lead">
+        Messages submitted through the public contact form. This is the delivery channel: no email provider is
+        configured, so nothing is forwarded — read and answer them here.
+      </p>
+      {error && (
+        <p className="status" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="status" role="status">
+          {notice}
+        </p>
+      )}
+      {rows.length === 0 && !error && (
+        <div className="card">
+          <p className="example">No messages yet.</p>
+        </div>
+      )}
+      {rows.map((m) => (
+        <div className="card" key={m.id} style={{ marginBottom: 12 }}>
+          <p className="example" style={{ marginTop: 0 }}>
+            #{m.id} · {new Date(m.created_at).toLocaleString()} · {m.name} &lt;{m.email}&gt;
+          </p>
+          <h3 style={{ margin: "4px 0" }}>{m.subject}</h3>
+          <p style={{ whiteSpace: "pre-wrap" }}>{m.message}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 14 }} href={`mailto:${m.email}`}>
+              Reply by email
+            </a>
+            <button
+              className="btn btn-ghost"
+              style={{ padding: "6px 12px", fontSize: 14 }}
+              onClick={() => remove(m.id)}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button className="btn btn-ghost" disabled={page === 0} onClick={() => setPage(page - 1)}>
+          ← Prev
+        </button>
+        <button className="btn btn-ghost" disabled={rows.length < 25} onClick={() => setPage(page + 1)}>
+          Next →
+        </button>
+      </div>
+    </AdminShell>
+  );
+}
+
+const SETTING_LABELS: Record<string, string> = {  resolver_provider: "Resolver provider (opensource | mock | external-optional)",
   resolve_limit: "Resolve rate limit per minute (1-600)",
   ads_enabled: "Ads enabled (true | false)",
   analytics_enabled: "Analytics enabled (true | false)",

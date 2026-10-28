@@ -9,7 +9,8 @@ Independent third-party tool to save **public** Threads videos, photos and carou
 - Download All (sequential individual downloads; no Worker-side ZIP to avoid memory buffering)
 - Light minimal UI matching spec screenshot + dark mode toggle, EN/FR/AR (AR = RTL)
 - SEO: server-rendered HTML for every route (`SEO_ROUTES` single source + DB slugs), `/sitemap.xml`, `/robots.txt`, canonical/OG/Twitter/JSON-LD on every page; real 404s, `HEAD` support, canonical host `https://www.savethreadsvideos.com`
-- Security: Threads-domain allowlist, SSRF protection, rate limiting (20/min resolve), short metadata cache, no open proxy, no media buffering in Worker
+- Trust pages: `/about`, `/how-to-use`, `/faq`, `/privacy`, `/terms`, `/disclaimer`, `/contact` — full articles pre-rendered from one shared module, plus a **working** contact form (database inbox, no fake sender, admin reader at `/admin/messages`)
+- Security: Threads-domain allowlist, SSRF protection, rate limiting (20/min resolve, 3/10min contact), short metadata cache, no open proxy, no media buffering in Worker
 
 ## Tech stack
 
@@ -20,7 +21,7 @@ React 18 + Vite 6 + TypeScript strict + React Router 6 + `@cloudflare/vite-plugi
 ```bash
 npm install
 npm run dev        # Vite dev (frontend only)
-npm test           # vitest (167 tests / 16 files)
+npm test           # vitest (220 tests / 19 files)
 npm run build      # tsc + vite build + static sitemap/robots + og image assets (all SEO pages render server-side at request time)
 npm run preview    # preview production build
 npx wrangler dev   # full Worker runtime (assets + API)
@@ -33,9 +34,10 @@ See `.env.example`. Key vars:
 
 | Var | Purpose |
 |---|---|
-| `SITE_URL` | Canonical/sitemap/robots base — apex, no `www`: `https://savethreadsvideos.com` |
+| `SITE_URL` | Canonical/sitemap/robots base — `https://www.savethreadsvideos.com` (www host; the apex 301-redirects to it in the Worker) |
 | `MEDIA_RESOLVER_PROVIDER` | `opensource` (default, no key) \\| `mock` (dev fixtures) \\| `external` (optional paid API) |
 | `RESOLVE_CACHE_TTL` | Metadata cache seconds (300) |
+| `CONTACT_EMAIL` | Optional public support address shown on `/contact` and in `GET /api/contact`; only displayed when syntactically valid. Without it the contact form is the only channel. |
 
 Mock hints: any URL → video; URL containing `photo` → image; `carousel` → 5 items; `private` → PRIVATE_CONTENT; `empty`/`nomedia` → MEDIA_NOT_FOUND.
 
@@ -79,7 +81,9 @@ impose operational limits — see below. Research: `docs/resolver-research.md`.
 
 - `POST /api/resolve` `{ "url": "https://www.threads.net/..." }` → `{ success, data: ResolvedPost }` or `{ success: false, error: { code, message } }`
 - `GET /api/health` → `{ ok: true }`
-- `GET /sitemap.xml`, `GET /robots.txt` — served by the Worker (SITE_URL-based, includes live DB slugs) **and** emitted as static files in `dist/client/` at build time; Static Assets wins for real browser navigations, so the build regenerates both on every `npm run build`. `HEAD` returns the same status/headers with an empty body.
+- `GET /api/contact` → `{ success: true, data: { accepting, email } }` — availability probe for the form; `POST /api/contact` stores a message (201) or returns `CONTACT_INVALID` / `CONTACT_UNAVAILABLE` / `RATE_LIMITED`.
+- `GET /api/admin/messages?limit&offset`, `DELETE /api/admin/messages/:id` — contact inbox (admin session required).
+- `GET /sitemap.xml`, `GET /robots.txt` — served by the Worker (SITE_URL-based, includes live DB slugs). With `run_worker_first: true` the Worker handles these on every request; the copies in `dist/client/` are a build-time fallback only. `HEAD` returns the same status/headers with an empty body.
 
 ## Technical SEO notes
 
@@ -89,13 +93,65 @@ impose operational limits — see below. Research: `docs/resolver-research.md`.
 - Social image is `public/og-image.png` (1200×630 PNG; SVG og:images are not supported by major platforms).
 - The anti-FOUC inline theme script in `index.html` is allowed by CSP via a sha256 hash in `src/lib/csp.ts`; a test fails if the two drift. The CSP is sent in production only — `npm run dev` omits it because Vite's own inline React Refresh preamble would be blocked (that used to break hydration in dev). `wrangler dev` runs the production build, so it still verifies the real headers. When tracking/ads/custom code is configured the policy switches from the hash to `'unsafe-inline'` (a hash would make browsers ignore it), and the Cloudflare Web Analytics beacon hosts are always allowed because the zone injects them.
 
+## Trust pages & contact form
+
+`/about`, `/how-to-use`, `/how-to-download-threads-videos`, `/privacy`, `/terms`,
+`/disclaimer` and `/contact` are real articles, not placeholders. The copy lives in
+`src/lib/info-pages.ts` and is rendered by **both** React (`src/pages/info.tsx`) and
+the Worker (`src/server/content/render.ts`), so what a visitor reads and what a
+crawler receives are identical. They are in `SEO_ROUTES`, therefore they get unique
+metadata, a canonical URL, sitemap entries, footer links and `BreadcrumbList` JSON-LD;
+`/faq` additionally emits `FAQPage` structured data from `src/lib/faq.ts`.
+
+The contact form is functional. There is no mail provider in this project, so:
+
+1. the React form calls `GET /api/contact` and hides itself (with a clear notice) when
+   the inbox is not usable — it never pretends to send;
+2. `POST /api/contact` validates server-side (JSON only, 16 KB, CSRF header check,
+   honeypot, 3 messages / 10 min per network) and stores the message in
+   `contact_messages` with a salted IP hash and a truncated User-Agent;
+3. the operator reads and deletes messages at `/admin/messages`.
+
+**Required for production:** apply `supabase/migrations/0003_contact.sql`
+(`npx supabase db push`). Until then the form correctly reports itself unavailable.
+Optional: `wrangler secret put CONTACT_EMAIL` to publish a real support address
+(validated before display; nothing is hardcoded).
+
+Content rules enforced by `tests/info-pages.test.ts`: no invented email, company,
+jurisdiction, phone or support hours; no "GDPR/CCPA compliant" claims; no ratings,
+user counts or download counts; no "watermark-free" or "unlimited" claims. See
+`docs/adsense-readiness-2026-10-27.md` for the audit, the evidence and the remaining
+AdSense items, and `docs/production-readiness-2026-10-28.md` for the deployment
+checklist, rollback notes and the live content review.
+
+The three flagship tool pages (`/threads-video-downloader`,
+`/threads-photo-downloader`, `/threads-carousel-downloader`) carry long-form sections
+and 5 FAQs each from `src/lib/tool-content.ts`, rendered by **both** the Worker and
+React, so they are no longer one-paragraph pages. `tests/tool-content.test.ts` enforces
+substance, claim rules and pre-rendering. To review the DB-created pages and guides
+without touching the database:
+
+```bash
+node scripts/audit-live-content.mjs                    # live site, read-only
+node scripts/audit-live-content.mjs --json             # machine-readable
+node scripts/audit-live-content.mjs --origin http://127.0.0.1:8788
+```
+
 ## Deployment
 
 1. `npx wrangler login`
 2. Set `SITE_URL` in `wrangler.jsonc` vars to your domain
-3. `npm run deploy` (runs `wrangler deploy`) — no resolver key needed.
+3. Apply the Supabase migrations, including the contact inbox:
+   `npx supabase db push` (needs `0001_admin.sql`, `0002_seo_content.sql`, `0003_contact.sql`)
+4. Optional public support address: `npx wrangler secret put CONTACT_EMAIL`
+5. `npm run deploy` (runs `wrangler deploy`) — no resolver key needed.
    Only if you explicitly choose `MEDIA_RESOLVER_PROVIDER=external`:
    `wrangler secret put MEDIA_RESOLVER_API_KEY` (+ `MEDIA_RESOLVER_API_URL` var).
+6. After deploying, submit one test message at `/contact` and read it at
+   `/admin/messages` (then delete it).
+7. Rollback: `npx wrangler rollback` restores the previous deployment. The contact
+   migration is additive and can stay in place. Full checklist (preflight, post-deploy
+   HTTP/API checks, rollback) in `docs/production-readiness-2026-10-28.md` §7.
 
 ## Known limitations
 
@@ -110,6 +166,7 @@ impose operational limits — see below. Research: `docs/resolver-research.md`.
 - Free operation has bounds: Cloudflare runtime/rate limits apply, and aggressive
   retrying is deliberately avoided (one retry with backoff).
 - No server-side ZIP/MP3 conversion (incompatible with Workers memory model); documented in UI copy.
+- Contact messages are stored in the site database and read in `/admin/messages`; there is no email forwarding yet. The form requires JavaScript and a reachable `contact_messages` table (migration `0003`), and reports itself unavailable otherwise.
 - Rate limiter and cache are in-memory per isolate; swap to native Rate Limiting binding / KV when scaling (interfaces ready).
 
 ## Admin dashboard + database

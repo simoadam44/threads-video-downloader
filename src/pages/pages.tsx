@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { DownloadForm, TrustRow, HowTo, Formats, WhyUs, Faq, CtaBanner, FAQ_ITEMS } from "../components/sections";
 import { AdSlot } from "../components/chrome";
 import { routeFor } from "../lib/seo-routes";
+import { toolContentFor } from "../lib/tool-content";
 import { applyPageSeo } from "../lib/site";
 import { useEffect, useState } from "react";
 
@@ -43,17 +44,19 @@ export function Home() {
   );
 }
 
-export function ToolPage({ path, extra }: { path: string; extra: string }) {
+export function ToolPage({ path }: { path: string }) {
   const r = routeFor(path);
+  const content = toolContentFor(path);
   useSeo(path);
   return (
     <>
       <Hero h1={r.h1} sub={r.description} />
       <section className="section" style={{ textAlign: "left" }}>
         <div className="card">
-          <p>{extra}</p>
+          {/* Same summary the Worker pre-renders for crawlers (registry = single source). */}
+          {r.summary && <p>{r.summary}</p>}
           <p>
-            <Link to="/how-to-download-threads-videos">How to download Threads videos →</Link>
+            <Link to="/how-to-use">How to use this downloader →</Link>
             {" · "}
             <Link to="/threads-photo-downloader">Photo downloader →</Link>
             {" · "}
@@ -61,21 +64,39 @@ export function ToolPage({ path, extra }: { path: string; extra: string }) {
           </p>
         </div>
       </section>
-      <Faq />
+      {/* Long-form copy from src/lib/tool-content.ts — the same blocks the
+          Worker pre-renders, so crawler and visitor read identical text. */}
+      {content && (
+        <section className="section" style={{ textAlign: "left" }}>
+          <div className="prose">
+            {content.sections.map((s, i) => (
+              <div key={i}>
+                <h2>{s.h2}</h2>
+                {s.body.map((p, j) => (
+                  <p key={j}>{p}</p>
+                ))}
+                {s.bullets && (
+                  <ul>
+                    {s.bullets.map((b, j) => (
+                      <li key={j}>{b}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+            <h2>Frequently Asked Questions</h2>
+            {content.faqs.map((f, i) => (
+              <div key={i}>
+                <h3>{f.q}</h3>
+                <p>{f.a}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {!content && <Faq />}
       <CtaBanner />
     </>
-  );
-}
-
-export function InfoPage({ path, children }: { path: string; children: React.ReactNode }) {
-  const r = routeFor(path);
-  useSeo(path);
-  return (
-    <section className="section" style={{ textAlign: "left" }}>
-      <h1>{r.h1}</h1>
-      <p className="lead">{r.description}</p>
-      <div className="card">{children}</div>
-    </section>
   );
 }
 
@@ -85,19 +106,27 @@ export function FaqPage() {
   return (
     <section className="section" style={{ textAlign: "left" }}>
       <h1>{t.faqSection.title}</h1>
-      <div className="card">
+      <p className="lead">
+        Short, factual answers about what this downloader does, what it cannot do, and how it treats your data.
+      </p>
+      <div className="card prose-card">
+        <h2>Common questions</h2>
         {FAQ_ITEMS.map((f) => (
-          <div key={f.q} style={{ marginBottom: 16 }}>
-            <strong>{f.q}</strong>
-            <p style={{ color: "var(--muted)" }}>{f.a}</p>
+          <div key={f.q}>
+            <h3>{f.q}</h3>
+            <p>{f.a}</p>
           </div>
         ))}
-        <p style={{ color: "var(--muted)" }}>
-          This is an independent third-party tool. Only publicly accessible content is supported; private posts,
-          login credentials and workarounds for access controls are never supported. Media is not permanently
-          stored by default.
-        </p>
       </div>
+      <p className="example">
+        Still stuck? <Link to="/contact">Contact us</Link> with the post link. The <Link to="/how-to-use">how-to-use
+        guide</Link> covers every error message, and the <Link to="/privacy">privacy policy</Link> explains what happens
+        to the links you paste.
+      </p>
+      <p className="example">
+        This is an independent third-party tool. Only publicly accessible content is supported; private posts, login
+        credentials and workarounds for access controls are never supported. Media is not stored on our servers.
+      </p>
     </section>
   );
 }
@@ -140,6 +169,7 @@ export function BlogPage() {
         ))}
         {[
           ["How to Download Threads Videos", "/how-to-download-threads-videos"],
+          ["How to Use the Downloader", "/how-to-use"],
           ["Threads Photo Downloader", "/threads-photo-downloader"],
           ["Threads Carousel Downloader", "/threads-carousel-downloader"],
         ].map(([title, href]) => (

@@ -55,4 +55,10 @@ export interface SeoRoute {
   title: string;
   description: string;
   h1: string;
+  /**
+   * Visible page summary, used by BOTH the React tool pages and the server
+   * renderer. Keeping it in the registry is what makes the crawlable HTML and
+   * the hydrated page say the same thing instead of two hand-written copies.
+   */
+  summary?: string;
 }

@@ -41,6 +41,25 @@ export interface ResolveEventInput {
   userAgent?: string;
 }
 
+/**
+ * Contact form messages. Stored because the site has no mail provider
+ * configured: the operator reads them in the admin inbox. Only the four
+ * visitor-provided fields plus hashed request metadata are kept.
+ */
+export interface ContactMessageInput {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  ipHash?: string;
+  userAgent?: string;
+}
+
+export interface ContactMessage extends ContactMessageInput {
+  id: number;
+  created_at: string;
+}
+
 export interface StatsSummary {
   total: number;
   success: number;
@@ -76,6 +95,10 @@ export interface DbProvider {
   updateGuide(id: number, input: GuideInput): Promise<Guide | null>;
   deleteGuide(id: number): Promise<boolean>;
   listLiveSlugs(): Promise<{ kind: "tool" | "guide"; slug: string; updated_at: string }[]>;
+  // Contact inbox (written by the public contact form, read in the admin area)
+  createContactMessage(input: ContactMessageInput): Promise<ContactMessage>;
+  listContactMessages(limit: number, offset: number): Promise<ContactMessage[]>;
+  deleteContactMessage(id: number): Promise<boolean>;
 }
 
 export const ALLOWED_SETTINGS = new Set([

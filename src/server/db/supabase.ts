@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { DbProvider, ResolveEventInput, StatsSummary } from "./types";
+import type { DbProvider, ResolveEventInput, StatsSummary, ContactMessageInput, ContactMessage } from "./types";
 import type { ToolPage, ToolPageInput, Guide, GuideInput } from "../content/types";
 import { parseFaqs, parseSlugList } from "../content/types";
 
@@ -50,6 +50,30 @@ function toGuide(r: GuideRow): Guide {
     title: r.title, description: r.description, h1: r.h1, body: r.body ?? "",
     faqs: parseFaqs(r.faqs), related_slugs: parseSlugList(r.related_slugs), status: r.status,
     updated_at: r.updated_at ?? "",
+  };
+}
+
+interface ContactRow {
+  id: number;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  ip_hash: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+function toContact(r: ContactRow): ContactMessage {
+  return {
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    subject: r.subject,
+    message: r.message,
+    ipHash: r.ip_hash ?? undefined,
+    userAgent: r.user_agent ?? undefined,
+    created_at: r.created_at,
   };
 }
 
@@ -244,5 +268,39 @@ export class SupabaseDb implements DbProvider {
       out.push({ kind: "guide", slug: r.slug, updated_at: r.updated_at ?? "" });
     }
     return out;
+  }
+
+  // ---- Contact inbox ----------------------------------------------------
+  async createContactMessage(input: ContactMessageInput): Promise<ContactMessage> {
+    const { data, error } = await this.client
+      .from("contact_messages")
+      .insert({
+        name: input.name.slice(0, 80),
+        email: input.email.slice(0, 254),
+        subject: input.subject.slice(0, 120),
+        message: input.message.slice(0, 4000),
+        ip_hash: input.ipHash?.slice(0, 128) ?? null,
+        user_agent: input.userAgent?.slice(0, 256) ?? null,
+      })
+      .select("id,name,email,subject,message,ip_hash,user_agent,created_at")
+      .single();
+    if (error) throw error;
+    return toContact(data as ContactRow);
+  }
+
+  async listContactMessages(limit: number, offset: number): Promise<ContactMessage[]> {
+    const { data, error } = await this.client
+      .from("contact_messages")
+      .select("id,name,email,subject,message,ip_hash,user_agent,created_at")
+      .order("created_at", { ascending: false })
+      .range(offset, offset + Math.max(0, Math.min(limit, 100) - 1));
+    if (error) throw error;
+    return ((data ?? []) as ContactRow[]).map(toContact);
+  }
+
+  async deleteContactMessage(id: number): Promise<boolean> {
+    const { error, count } = await this.client.from("contact_messages").delete({ count: "exact" }).eq("id", id);
+    if (error) throw error;
+    return (count ?? 0) > 0;
   }
 }

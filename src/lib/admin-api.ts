@@ -72,6 +72,18 @@ export interface AiDraftResult {
   warnings: string[];
 }
 
+/** One message submitted through the public contact form. */
+export interface AdminContactMessage {
+  id: number;
+  created_at: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  ipHash?: string;
+  userAgent?: string;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
   const data = (await res.json()) as { success: boolean; data?: T; error?: { message: string } };
@@ -108,6 +120,10 @@ export const adminApi = {
   // AI draft generation (Gemini free tier) — returns fields for review.
   generateDraft: (input: { kind: "tool" | "guide"; target_keyword: string; lang: string }) =>
     req<AiDraftResult>("/api/admin/ai/draft", { method: "POST", body: JSON.stringify(input) }),
+  // Contact inbox (the delivery channel for the public contact form).
+  messages: (limit: number, offset: number) =>
+    req<AdminContactMessage[]>(`/api/admin/messages?limit=${limit}&offset=${offset}`),
+  deleteMessage: (id: number) => req<unknown>(`/api/admin/messages/${id}`, { method: "DELETE" }),
 };
 
 function methodPut(input: unknown): RequestInit {

@@ -3,10 +3,11 @@
 Scope: the trust pages, the shared server/client copy, the working contact form, and a
 content-quality review of the 23 live tool pages and 19 live guides.
 
-Status: **implemented locally, verified locally, NOT committed, NOT pushed, NOT deployed.**
-Production still serves version `095ba9e1-f43d-4873-84c6-9c36e36b52e5`. The production
-database has **not** received `0003_contact.sql`. Nothing in this document changes DNS,
-nameservers, Cloudflare SSL settings or `canonicalHostRedirect()`.
+Status: **deployed to production on 2026-10-29** (commit `52740d9`, Worker version
+`a679d6be-cbde-4a48-8b1e-a940657d8ba0`). The production database has **not** received
+`0003_contact.sql`, so the contact endpoint correctly reports `accepting:false` and the
+form shows its unavailable notice. Nothing in this document changes DNS, nameservers,
+Cloudflare SSL settings or `canonicalHostRedirect()`.
 
 Companion documents:
 

@@ -93,9 +93,10 @@ describe("retiredRedirect", () => {
 });
 
 describe("sitemap eligibility", () => {
-  it("drops retired slugs and route-shadowed rows", () => {
+  it("drops retired slugs, gone pages and route-shadowed rows", () => {
     expect(isIndexableDbSlug("tool", "threads-video-downloader-hd")).toBe(false);
     expect(isIndexableDbSlug("guide", "blog-save-threads-video-workflow")).toBe(false);
+    expect(isIndexableDbSlug("tool", GONE_PATHS[0].slice(1))).toBe(false); // 410 page
     expect(isIndexableDbSlug("tool", "threads-photo-downloader")).toBe(false); // static route wins
     expect(isIndexableDbSlug("tool", "threads-to-mp3-browser-tool")).toBe(true);
     expect(isIndexableDbSlug("guide", "threads-to-mp3-audio-conversion-tutorial")).toBe(true);
@@ -165,15 +166,16 @@ describe("worker content consolidation", () => {
     const { default: worker } = await import("../src/server/worker");
     const res = await worker.fetch(
       new Request("https://test.local/sitemap.xml"),
-      envWith(["threads-to-mp3-browser-tool", "threads-video-downloader-hd", "threads-photo-downloader"], [
-        "threads-to-mp3-audio-conversion-tutorial",
-        "blog-save-threads-video-workflow",
-      ]),
+      envWith(
+        ["threads-to-mp3-browser-tool", "threads-video-downloader-hd", "threads-photo-downloader", GONE_PATHS[0].slice(1)],
+        ["threads-to-mp3-audio-conversion-tutorial", "blog-save-threads-video-workflow"],
+      ),
     );
     const xml = await res.text();
     expect(xml).toContain("/threads-to-mp3-browser-tool");
     expect(xml).toContain("/blog/threads-to-mp3-audio-conversion-tutorial");
     expect(xml).not.toContain("/threads-video-downloader-hd");
+    expect(xml).not.toContain(GONE_PATHS[0]);
     expect(xml).not.toContain("/blog/blog-save-threads-video-workflow");
     // Exactly one entry for a URL whose slug is also a built-in route.
     expect((xml.match(/<loc>[^<]*\/threads-photo-downloader<\/loc>/g) || []).length).toBe(1);

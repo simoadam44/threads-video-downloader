@@ -21,7 +21,7 @@ import {
   type LinkNode,
 } from "./content/types";
 import { renderToolPage, renderGuide, renderStaticRoute } from "./content/render";
-import { isGonePath, isRetiredGuideSlug, isRetiredToolSlug, retiredRedirect } from "./content/redirects";
+import { isGonePath, isRetiredGuideSlug, isRemovedToolSlug, retiredRedirect } from "./content/redirects";
 import { trackingFromSettings, type TrackingConfig } from "./content/tracking";
 import { adsFromSettings, adsenseHeadHtml } from "./content/ads";
 import { SEO_ROUTES } from "../lib/seo-routes";
@@ -434,7 +434,7 @@ const RESERVED_SLUGS = new Set([
 export function isIndexableDbSlug(kind: "tool" | "guide", slug: string): boolean {
   return kind === "guide"
     ? !isRetiredGuideSlug(slug)
-    : !isRetiredToolSlug(slug) && !RESERVED_SLUGS.has(slug);
+    : !isRemovedToolSlug(slug) && !RESERVED_SLUGS.has(slug);
 }
 
 /** Short-lived in-memory cache for the live-slug set (sitemap + routing). */
@@ -1070,8 +1070,8 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   const toolApi = decoded.match(/^\/api\/content\/tool\/([A-Za-z0-9\u0600-\u06FF\-_]+)$/u);
   if (toolApi && req.method === "GET") {
     try {
-      // Retired slugs 301 in HTML, so their JSON must not pretend to exist.
-      if (isRetiredToolSlug(toolApi[1])) return null;
+      // Removed slugs (301 or 410) do not exist as JSON either.
+      if (isRemovedToolSlug(toolApi[1])) return null;
       const page = await db.getToolPageBySlug(toolApi[1]);
       if (!page || page.status !== "live") return null;
       return new Response(JSON.stringify({ success: true, data: page }), { status: 200, headers: publicJsonHeaders() });
@@ -1100,8 +1100,9 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   const isRootSlug = decoded !== "/" && !decoded.slice(1).includes("/");
   if (!blogMatch && !isRootSlug) return null;
   if (!blogMatch && RESERVED_SLUGS.has(decoded.slice(1))) return null;
-  // Retired slugs are handled by the 301 in fetch(); never render them.
-  if (!blogMatch && isRetiredToolSlug(decoded.slice(1))) return null;
+  // Retired slugs are handled by the 301 in fetch(); removed-by-purpose slugs
+  // by the 410. Neither may reach a renderer.
+  if (!blogMatch && isRemovedToolSlug(decoded.slice(1))) return null;
   if (blogMatch && isRetiredGuideSlug(blogMatch[1])) return null;
   const template = await appTemplate(req, env); // null when assets binding unavailable: renderers fall back to a standalone shell
   const pool = await linkPool(env);

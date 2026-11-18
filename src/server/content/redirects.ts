@@ -119,3 +119,13 @@ export function retiredRedirect(pathname: string): string | null {
 export function isGonePath(pathname: string): boolean {
   return GONE_PATHS.includes(normalise(pathname));
 }
+
+/** Same question for a bare root-level slug (`isGonePath("/" + slug)`). */
+export function isGoneToolSlug(slug: string): boolean {
+  return isGonePath(`/${slug}`);
+}
+
+/** True when a DB row must not be rendered, indexed or listed anywhere. */
+export function isRemovedToolSlug(slug: string): boolean {
+  return isRetiredToolSlug(slug) || isGoneToolSlug(slug);
+}

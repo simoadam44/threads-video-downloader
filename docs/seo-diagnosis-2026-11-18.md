@@ -251,3 +251,39 @@ page footprint, then growth from there.
 - Do not remove GA4 or ads hoping for a ranking effect.
 - Do not apply `supabase/migrations/0003_contact.sql` as an SEO measure — it fixes the contact
   form, nothing else.
+
+## 9. What was implemented (2026-11-18)
+
+All six items of the recovery plan in section 6 are now in code, deployed as Worker version
+`59bb65f6-ecb2-4365-a7c2-7f7615353d29` (commit `a4ff5b1` plus the 410 follow-up).
+
+1. **Homepage depth** — `src/lib/home-content.ts` (8 sections, 7 FAQs, 5 internal-link cards),
+   rendered by both the Worker and React. The page pre-renders 1,231 words in `<main>`, 10 `<h2>`,
+   a visible FAQ, `FAQPage` + `WebApplication` JSON-LD, and a "Where to go next" nav. Before:
+   33 words, 0 `<h2>`, `WebSite` schema only.
+2. **Content consolidation** — `src/server/content/redirects.ts`: 18 tool slugs and 15 guide slugs
+   answer `301` to the page that owns the intent; `how-to-download-instagram-reels-web-tool`
+   answers `410` (the resolver only accepts threads.net / threads.com, so no honest target exists).
+   No row is deleted. The optional bookkeeping migration
+   `supabase/migrations/0004_content_consolidation.sql` is written but **not applied**; edge
+   behaviour does not depend on it.
+3. **Sitemap / API hygiene** — `isRemovedToolSlug()` excludes both the 301 slugs and the 410 page
+   from the sitemap, from `/api/content/tools|guides` and from `/api/content/tool|guide/<slug>`.
+   Live sitemap dropped 53 → 20 URLs (13 static + 3 tools + 4 guides); the public tool index
+   dropped 23 → 3 rows and the guide index 19 → 4.
+4. **Internal linking** — `siblingsFor()` links the three product pages to each other and to the
+   guide/FAQ in both renderers, so `/` is no longer the only entry point.
+
+Verified in production: 301 matrix (including the trailing-slash form and a `POST`, which is never
+redirected), 410, real 404, `/faq/`→308, `/index.html`→307, apex→www 301 unchanged, Googlebot
+parity on the homepage, `WebSite`/`WebApplication`/`FAQPage` present, canonical correct, and no
+retired slug anywhere in the sitemap.
+
+Deliberately **not** done:
+
+- `/threads-gif-downloader`, `/threads-profile-picture-downloader`, `/threads-video-downloader-1080p`,
+  `-for-iphone`, `-for-android` were not created: the opensource resolver returns only `image` and
+  `video` items (GIFs arrive as MP4), so those pages would promise features the code does not have.
+- The homepage `<h1>` stayed "Download Threads Videos" (unique per route) instead of duplicating
+  the `/threads-video-downloader` `<h1>`; the `<title>` already leads with the brand term.
+- GSC sitemap resubmission and any reconsideration request remain owner-only.

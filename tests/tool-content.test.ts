@@ -83,8 +83,14 @@ describe("tool landing page content", () => {
     }
   });
 
-  it("does not attach tool FAQs or breadcrumbs to other registry routes", () => {
-    for (const path of ["/", "/how-to-download-threads-videos", "/blog"]) {
+  it("attaches FAQPage only where the questions are visible on the page", () => {
+    // The homepage has its own visible FAQ (src/lib/home-content.ts), so its
+    // schema is legitimate; a FAQ block is never emitted elsewhere.
+    const home = render("/");
+    expect(home).toContain('"@type":"FAQPage"');
+    expect(home).toContain('"@type":"WebApplication"');
+    expect(home).not.toContain('"@type":"BreadcrumbList"');
+    for (const path of ["/how-to-download-threads-videos", "/blog", "/privacy", "/about"]) {
       const html = render(path);
       expect(html, `${path} should not emit FAQPage`).not.toContain('"@type":"FAQPage"');
     }

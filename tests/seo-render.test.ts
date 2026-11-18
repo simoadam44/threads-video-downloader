@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import { handlePublicContent } from "../src/server/worker";
 import type { D1Binding } from "../src/server/db/d1";
 
@@ -7,11 +7,11 @@ function fakeD1(): D1Binding & { tables: { tool_pages: Record<string, unknown>[]
   const tables: { tool_pages: Record<string, unknown>[]; guides: Record<string, unknown>[] } = {
     tool_pages: [
       {
-        id: 1, slug: "threads-video-downloader-hd", badge: "HD", lang: "en",
-        target_keyword: "Threads Video Downloader",
-        title: "Threads Video Downloader HD - Save Public Threads Videos in High Quality for Free",
+        id: 1, slug: "threads-to-mp3-browser-tool", badge: "MP3", lang: "en",
+        target_keyword: "Threads to MP3",
+        title: "Threads to MP3 Browser Tool - Save Audio From Public Threads Videos",
         description: "Paste a public Threads video link and save the available MP4 in the best published quality. Fast, free, no login required for everyone.",
-        h1: "Threads Video Downloader HD", intro: "x".repeat(120),
+        h1: "Threads to MP3 Browser Tool", intro: "x".repeat(120),
         faqs: JSON.stringify([{ q: "How do I download a video here?", a: "Copy the public link, paste it above, and press download to save the file." }]),
         related_slugs: JSON.stringify([]), status: "live",
       },
@@ -24,7 +24,7 @@ function fakeD1(): D1Binding & { tables: { tool_pages: Record<string, unknown>[]
         description: "Learn how to download public Threads videos on Android and save them straight to your gallery with no app or login needed at all.",
         h1: "How to Download Threads Videos on Android", body: "<p>" + "y".repeat(900) + "</p>",
         faqs: JSON.stringify([{ q: "Where do videos save on Android?", a: "In your Downloads folder and Gallery app automatically after saving." }]),
-        related_slugs: JSON.stringify(["threads-video-downloader-hd"]), status: "live",
+        related_slugs: JSON.stringify(["threads-to-mp3-browser-tool"]), status: "live",
       },
       {
         id: 2, slug: "unpublished-draft-guide", lang: "en",
@@ -81,13 +81,13 @@ const get = (path: string) => new Request(`https://test.local${path}`);
 
 describe("server-rendered SEO pages", () => {
   it("renders a live tool page with unique meta + schemas + related links", async () => {
-    const res = await handlePublicContent(get("/threads-video-downloader-hd"), env(), "/threads-video-downloader-hd");
+    const res = await handlePublicContent(get("/threads-to-mp3-browser-tool"), env(), "/threads-to-mp3-browser-tool");
     expect(res).not.toBe(null);
     const html = await res!.text();
     expect(res!.status).toBe(200);
-    expect(html).toContain("<h1>Threads Video Downloader HD</h1>");
-    expect(html).toContain("<title>Threads Video Downloader HD - Save Public Threads Videos");
-    expect(html).toContain('rel="canonical" href="https://test.local/threads-video-downloader-hd"');
+    expect(html).toContain("<h1>Threads to MP3 Browser Tool</h1>");
+    expect(html).toContain("<title>Threads to MP3 Browser Tool - Save Audio");
+    expect(html).toContain('rel="canonical" href="https://test.local/threads-to-mp3-browser-tool"');
     expect(html).toContain('"@type":"WebApplication"');
     expect(html).toContain('"@type":"FAQPage"');
   });
@@ -97,7 +97,7 @@ describe("server-rendered SEO pages", () => {
     const html = await res!.text();
     expect(html).toContain('"@type":"Article"');
     expect(html).toContain("<h1>How to Download Threads Videos on Android</h1>");
-    expect(html).toContain("/threads-video-downloader-hd"); // cross-link
+    expect(html).toContain("/threads-to-mp3-browser-tool"); // cross-link
   });
   it("unknown slugs fall through (null) and reserved slugs never render", async () => {
     expect(await handlePublicContent(get("/nope"), env(), "/nope")).toBe(null);
@@ -108,7 +108,7 @@ describe("server-rendered SEO pages", () => {
     const { default: worker } = await import("../src/server/worker");
     const res = await worker.fetch(get("/sitemap.xml"), env());
     const xml = await res.text();
-    expect(xml).toContain("/threads-video-downloader-hd");
+    expect(xml).toContain("/threads-to-mp3-browser-tool");
     expect(xml).toContain("/blog/how-to-download-threads-videos-on-android");
     expect(xml).not.toContain("/api/");
   });
@@ -142,7 +142,7 @@ describe("blog hub lists live guides", () => {
     expect(json.success).toBe(true);
     expect(json.data.length).toBe(1);
     expect(Object.keys(json.data[0]).sort()).toEqual(["description", "lang", "slug", "title", "updated_at"]);
-    expect(json.data[0]["slug"]).toBe("threads-video-downloader-hd");
+    expect(json.data[0]["slug"]).toBe("threads-to-mp3-browser-tool");
   });
   it("SSR /blog hub links every live guide (crawlable without JS)", async () => {
     const { handleStaticSeo } = await import("../src/server/worker");

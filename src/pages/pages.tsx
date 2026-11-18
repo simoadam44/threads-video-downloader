@@ -2,8 +2,9 @@ import { Link } from "react-router-dom";
 import { useI18n } from "../i18n";
 import { DownloadForm, TrustRow, HowTo, Formats, WhyUs, Faq, CtaBanner, FAQ_ITEMS } from "../components/sections";
 import { AdSlot } from "../components/chrome";
-import { routeFor } from "../lib/seo-routes";
+import { routeFor, siblingsFor } from "../lib/seo-routes";
 import { toolContentFor } from "../lib/tool-content";
+import { HOME_FAQS, HOME_LINKS, HOME_SECTIONS } from "../lib/home-content";
 import { applyPageSeo } from "../lib/site";
 import { useEffect, useState } from "react";
 
@@ -38,7 +39,49 @@ export function Home() {
       <AdSlot slot="midpage" />
       <Formats />
       <WhyUs />
-      <Faq />
+      {/* Long-form copy from src/lib/home-content.ts — the same blocks the
+          Worker pre-renders, so the crawlable HTML and the visible page carry
+          identical text. The FAQ here is intentionally not FAQ_ITEMS (that
+          block belongs to /faq alone). */}
+      <section className="section" style={{ textAlign: "left" }}>
+        <div className="prose">
+          {HOME_SECTIONS.map((s, i) => (
+            <div key={i}>
+              <h2>{s.h2}</h2>
+              {s.body.map((p, j) => (
+                <p key={j}>{p}</p>
+              ))}
+              {s.bullets && (
+                <ul>
+                  {s.bullets.map((b, j) => (
+                    <li key={j}>{b}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+          <h2>Frequently Asked Questions</h2>
+          {HOME_FAQS.map((f, i) => (
+            <div key={i}>
+              <h3>{f.q}</h3>
+              <p>{f.a}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="section" style={{ textAlign: "left" }} aria-label="Explore the downloader">
+        <div className="card">
+          <h2>Where to go next</h2>
+          {HOME_LINKS.map((l) => (
+            <div key={l.href}>
+              <h3>
+                <Link to={l.href}>{l.label}</Link>
+              </h3>
+              <p>{l.summary}</p>
+            </div>
+          ))}
+        </div>
+      </section>
       <CtaBanner />
     </>
   );
@@ -56,11 +99,12 @@ export function ToolPage({ path }: { path: string }) {
           {/* Same summary the Worker pre-renders for crawlers (registry = single source). */}
           {r.summary && <p>{r.summary}</p>}
           <p>
-            <Link to="/how-to-use">How to use this downloader →</Link>
-            {" · "}
-            <Link to="/threads-photo-downloader">Photo downloader →</Link>
-            {" · "}
-            <Link to="/threads-carousel-downloader">Carousel downloader →</Link>
+            {siblingsFor(path).map((l, i) => (
+              <span key={l.path}>
+                {i > 0 && " · "}
+                <Link to={l.path}>{l.label}</Link>
+              </span>
+            ))}
           </p>
         </div>
       </section>

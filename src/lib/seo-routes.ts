@@ -102,3 +102,22 @@ export const SEO_ROUTES: SeoRoute[] = [
 export function routeFor(path: string): SeoRoute {
   return SEO_ROUTES.find((r) => r.path === path) ?? SEO_ROUTES[0];
 }
+
+/**
+ * Sibling links shared by the three product pages. Counting on site-wide
+ * navigation alone left the tool pages linked only from the header/footer,
+ * while the homepage held almost all of the site's search visibility — so the
+ * product pages now link to each other and to the how-to guide explicitly.
+ */
+export const TOOL_SIBLINGS: { path: string; label: string }[] = [
+  { path: "/threads-video-downloader", label: "Threads Video Downloader" },
+  { path: "/threads-photo-downloader", label: "Threads Photo Downloader" },
+  { path: "/threads-carousel-downloader", label: "Threads Carousel Downloader" },
+  { path: "/how-to-download-threads-videos", label: "How to download Threads videos" },
+  { path: "/faq", label: "Frequently asked questions" },
+];
+
+/** Every sibling except the current page. */
+export function siblingsFor(path: string): { path: string; label: string }[] {
+  return TOOL_SIBLINGS.filter((l) => l.path !== path);
+}

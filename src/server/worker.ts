@@ -21,6 +21,7 @@ import {
   type LinkNode,
 } from "./content/types";
 import { renderToolPage, renderGuide, renderStaticRoute } from "./content/render";
+import { isGonePath, isRetiredGuideSlug, isRetiredToolSlug, retiredRedirect } from "./content/redirects";
 import { trackingFromSettings, type TrackingConfig } from "./content/tracking";
 import { adsFromSettings, adsenseHeadHtml } from "./content/ads";
 import { SEO_ROUTES } from "../lib/seo-routes";
@@ -164,18 +165,32 @@ function json(data: unknown, status: number, extra?: Headers): Response {
 }
 
 /** Branded 404 with real 404 status (no soft-404 SPA shell). */
-function notFoundPage(origin: string): Response {
+function notFoundPage(origin: string, status = 404): Response {
   const h = securityHeaders();
   h.set("content-type", "text/html; charset=utf-8");
   h.set("cache-control", "no-store");
+  const title = status === 410 ? "Page removed" : "Page not found";
+  const line = status === 410 ? "This page has been retired and is no longer offered." : "This link does not exist.";
   const body = `<!doctype html><html lang="en"><head><meta charset="UTF-8" />` +
     `<meta name="viewport" content="width=device-width, initial-scale=1.0" />` +
-    `<title>Page not found - Threads Video Downloader</title>` +
+    `<title>${title} - Threads Video Downloader</title>` +
     `<meta name="robots" content="noindex, nofollow" />` +
     `<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:64px 24px;text-align:center}</style>` +
-    `</head><body><h1>Page not found</h1><p>This link does not exist.</p>` +
+    `</head><body><h1>${title}</h1><p>${line}</p>` +
     `<p><a href="${origin.replace(/\/$/, "")}/">Back to home</a></p></body></html>`;
-  return new Response(body, { status: 404, headers: h });
+  return new Response(body, { status, headers: h });
+}
+
+/**
+ * Permanent 301 for consolidated content. Cacheable for an hour so the edge
+ * and crawlers stop re-asking, and never applied to non-idempotent methods
+ * (a 301 would turn a POST into a GET).
+ */
+function permanentRedirect(destination: string, url: URL): Response {
+  const h = securityHeaders();
+  h.set("location", new URL(destination, url.origin).toString());
+  h.set("cache-control", "public, max-age=3600");
+  return new Response(null, { status: 301, headers: h });
 }
 
 function err(code: ApiErrorCode, message: string, status: number): Response {
@@ -409,6 +424,19 @@ const RESERVED_SLUGS = new Set([
   "how-to-download-threads-videos", "sitemap.xml", "robots.txt", "favicon.svg", "og-image.svg",
 ]);
 
+/**
+ * Whether a live DB row may appear in the sitemap / public content index.
+ * Two kinds are excluded:
+ * - retired pages that now answer 301 (src/server/content/redirects.ts);
+ * - tool rows whose slug is shadowed by a built-in route (the static page wins,
+ *   so the row is unreachable and would only add a misleading <lastmod>).
+ */
+export function isIndexableDbSlug(kind: "tool" | "guide", slug: string): boolean {
+  return kind === "guide"
+    ? !isRetiredGuideSlug(slug)
+    : !isRetiredToolSlug(slug) && !RESERVED_SLUGS.has(slug);
+}
+
 /** Short-lived in-memory cache for the live-slug set (sitemap + routing). */
 const slugCache = new MemoryCache<{ kind: "tool" | "guide"; slug: string; updated_at: string }[]>(60_000);
 
@@ -418,7 +446,11 @@ async function liveSlugs(env: Env): Promise<{ kind: "tool" | "guide"; slug: stri
   const db = getDb(env);
   if (!db) return [];
   try {
-    const slugs = await db.listLiveSlugs();
+    // Two kinds of live rows must never reach the sitemap: retired pages that
+    // now answer 301 (src/server/content/redirects.ts), and rows whose slug is
+    // shadowed by a built-in route (the static page wins, so the row is
+    // unreachable but would otherwise contribute a misleading <lastmod>).
+    const slugs = (await db.listLiveSlugs()).filter((s) => isIndexableDbSlug(s.kind, s.slug));
     slugCache.set("live", slugs);
     return slugs;
   } catch {
@@ -1014,7 +1046,7 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   if (decoded === "/api/content/guides" && req.method === "GET") {
     try {
       const guides = (await db.listGuides())
-        .filter((g) => g.status === "live")
+        .filter((g) => g.status === "live" && isIndexableDbSlug("guide", g.slug))
         .slice(0, 100)
         .map((g) => ({ slug: g.slug, title: g.title, description: g.description, lang: g.lang, updated_at: g.updated_at ?? "" }));
       const h = publicJsonHeaders();
@@ -1027,7 +1059,7 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   if (decoded === "/api/content/tools" && req.method === "GET") {
     try {
       const tools = (await db.listToolPages())
-        .filter((t) => t.status === "live")
+        .filter((t) => t.status === "live" && isIndexableDbSlug("tool", t.slug))
         .slice(0, 100)
         .map((t) => ({ slug: t.slug, title: t.title, description: t.description, lang: t.lang, updated_at: t.updated_at ?? "" }));
       return new Response(JSON.stringify({ success: true, data: tools }), { status: 200, headers: publicJsonHeaders() });
@@ -1038,6 +1070,8 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   const toolApi = decoded.match(/^\/api\/content\/tool\/([A-Za-z0-9\u0600-\u06FF\-_]+)$/u);
   if (toolApi && req.method === "GET") {
     try {
+      // Retired slugs 301 in HTML, so their JSON must not pretend to exist.
+      if (isRetiredToolSlug(toolApi[1])) return null;
       const page = await db.getToolPageBySlug(toolApi[1]);
       if (!page || page.status !== "live") return null;
       return new Response(JSON.stringify({ success: true, data: page }), { status: 200, headers: publicJsonHeaders() });
@@ -1048,6 +1082,7 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   const guideApi = decoded.match(/^\/api\/content\/guide\/([A-Za-z0-9\u0600-\u06FF\-_]+)$/u);
   if (guideApi && req.method === "GET") {
     try {
+      if (isRetiredGuideSlug(guideApi[1])) return null;
       const guide = await db.getGuideBySlug(guideApi[1]);
       if (!guide || guide.status !== "live") return null;
       return new Response(JSON.stringify({ success: true, data: guide }), { status: 200, headers: publicJsonHeaders() });
@@ -1065,6 +1100,9 @@ export async function handlePublicContent(req: Request, env: Env, pathname: stri
   const isRootSlug = decoded !== "/" && !decoded.slice(1).includes("/");
   if (!blogMatch && !isRootSlug) return null;
   if (!blogMatch && RESERVED_SLUGS.has(decoded.slice(1))) return null;
+  // Retired slugs are handled by the 301 in fetch(); never render them.
+  if (!blogMatch && isRetiredToolSlug(decoded.slice(1))) return null;
+  if (blogMatch && isRetiredGuideSlug(blogMatch[1])) return null;
   const template = await appTemplate(req, env); // null when assets binding unavailable: renderers fall back to a standalone shell
   const pool = await linkPool(env);
   if (blogMatch) {
@@ -1294,6 +1332,14 @@ export default {
     // covered, so the apex host can never serve a duplicate of the site.
     const hostRedirect = canonicalHostRedirect(req, siteUrl(env, req));
     if (hostRedirect) return hostRedirect;
+    // Consolidated content: retired DB slugs answer 301 to the page that owns
+    // the intent, and pages that promised a feature that does not exist answer
+    // 410. Both run before any renderer so no duplicate HTML is ever served.
+    if (req.method === "GET" || req.method === "HEAD") {
+      const destination = retiredRedirect(url.pathname);
+      if (destination) return permanentRedirect(destination, url);
+      if (isGonePath(url.pathname)) return notFoundPage(siteUrl(env, req), 410);
+    }
     if (req.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, resolver: getResolver(env).name }, 200);
     }

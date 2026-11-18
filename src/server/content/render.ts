@@ -8,7 +8,9 @@ import type { ToolPage, Guide, LinkNode } from "./types";
 import { trackingHeadHtml, trackingBodyHtml, robotsMetaContent, canonicalWithBase, type TrackingConfig } from "./tracking";
 import { FAQ_ITEMS } from "../../lib/faq";
 import { infoPageFor, type InfoBlock } from "../../lib/info-pages";
-import { toolContentFor } from "../../lib/tool-content";
+import { toolContentFor, type ToolFaq, type ToolSection } from "../../lib/tool-content";
+import { siblingsFor } from "../../lib/seo-routes";
+import { HOME_FAQS, HOME_LINKS, HOME_SECTIONS, type HomeLink } from "../../lib/home-content";
 
 export function escapeHtml(s: string): string {
   return s
@@ -239,11 +241,40 @@ function relatedHtml(related: LinkNode[], base: string, label: string): string {
   return `<nav aria-label="${escapeHtml(label)}"><h2>${escapeHtml(label)}</h2><ul>${items}</ul></nav>`;
 }
 
-function faqHtml(faqs: { q: string; a: string }[]): string {
+function faqHtml(faqs: ToolFaq[]): string {
   if (faqs.length === 0) return "";
   return `<section><h2>Frequently Asked Questions</h2>${faqs
     .map((f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`)
     .join("")}</section>`;
+}
+
+/** Long-form sections shared by the homepage and the three tool pages. */
+function sectionsHtml(sections: ToolSection[]): string {
+  return sections
+    .map(
+      (s) =>
+        `<section><h2>${escapeHtml(s.h2)}</h2>` +
+        s.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+        (s.bullets?.length ? `<ul>${s.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>` : "") +
+        `</section>`,
+    )
+    .join("");
+}
+
+/**
+ * Contextual internal links from the homepage. Anchor text is the destination
+ * page's own H1, not a keyword list: with 97% of the site's visibility sitting
+ * on `/`, the rest of the site has to be reachable from body copy.
+ */
+function homeLinksHtml(links: HomeLink[]): string {
+  if (links.length === 0) return "";
+  return `<nav aria-label="Explore the downloader"><h2>Where to go next</h2>${links
+    .map(
+      (l) =>
+        `<div><h3><a href="${escapeHtml(l.href)}">${escapeHtml(l.label)}</a></h3>` +
+        `<p>${escapeHtml(l.summary)}</p></div>`,
+    )
+    .join("")}</nav>`;
 }
 
 /**
@@ -283,23 +314,27 @@ export function renderStaticRoute(
   } else {
     main = `<main><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
       (route.summary ? `<p>${escapeHtml(route.summary)}</p>` : "");
+    // The homepage is the page that ranks for the product keywords, so it
+    // carries the same long-form treatment as the tool pages instead of a
+    // single sentence. Copy lives in src/lib/home-content.ts and is shared
+    // with the React page.
+    if (route.path === "/") {
+      main += sectionsHtml(HOME_SECTIONS);
+      main += faqHtml(HOME_FAQS);
+      main += homeLinksHtml(HOME_LINKS);
+    }
     // The three primary tool pages carry long-form copy from the shared
     // module so the pre-rendered HTML is not a single paragraph.
     if (tool) {
-      main += tool.sections
-        .map(
-          (s) =>
-            `<section><h2>${escapeHtml(s.h2)}</h2>` +
-            s.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
-            (s.bullets?.length
-              ? `<ul>${s.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>`
-              : "") +
-            `</section>`,
-        )
-        .join("");
+      main += sectionsHtml(tool.sections);
       main += faqHtml(tool.faqs);
+      main += `<nav aria-label="Related pages"><h2>Related pages</h2><ul>${siblingsFor(route.path)
+        .map((l) => `<li><a href="${escapeHtml(l.path)}">${escapeHtml(l.label)}</a></li>`)
+        .join("")}</ul></nav>`;
     }
-    main += `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-use">How to use</a> · <a href="/faq">FAQ</a></p>`;
+    if (route.path !== "/") {
+      main += `<p><a href="/">Threads Video Downloader</a> · <a href="/how-to-use">How to use</a> · <a href="/faq">FAQ</a></p>`;
+    }
     // /faq: put the real answers in the initial HTML (not only after hydration).
     if (route.path === "/faq") {
       main += `<section><h2>Common questions</h2>${FAQ_ITEMS.map(
@@ -326,6 +361,26 @@ export function renderStaticRoute(
       url: origin,
     }),
   ];
+  // The homepage is the product page: describe the application itself and the
+  // questions a visitor can actually read on it (no ratings, no user counts).
+  if (route.path === "/") {
+    schemas.push(
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        name: "Threads Video Downloader",
+        url: canonical,
+        description: route.description,
+        applicationCategory: "MultimediaApplication",
+        operatingSystem: "Any",
+        browserRequirements: "Requires JavaScript",
+        isAccessibleForFree: true,
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        inLanguage: "en",
+      }),
+    );
+    schemas.push(faqJsonLd(HOME_FAQS));
+  }
   if (route.path === "/faq") schemas.push(faqJsonLd(FAQ_ITEMS));
   if (tool) {
     // Visible Q/A on the page, so the matching structured data is legitimate.

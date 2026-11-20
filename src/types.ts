@@ -61,4 +61,11 @@ export interface SeoRoute {
    * the hydrated page say the same thing instead of two hand-written copies.
    */
   summary?: string;
+  /**
+   * Date (`YYYY-MM-DD`) the copy or markup of this static page last changed.
+   * Emitted as `<lastmod>` in both sitemaps. It is curated, not generated: a
+   * build or deploy does not change a page, so a build timestamp would be a
+   * fake signal. Bump it only when the visible content of the page changes.
+   */
+  updated?: string;
 }

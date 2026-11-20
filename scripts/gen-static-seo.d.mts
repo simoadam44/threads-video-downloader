@@ -3,7 +3,8 @@ export function escapeXml(s: unknown): string;
 export function isSafeSlug(slug: unknown): boolean;
 export function buildSitemapXml(
   origin: string,
-  staticPaths: string[],
+  /** Plain paths (legacy) or `{path, updated}` entries with a curated <lastmod>. */
+  staticPaths: (string | { path?: string; updated?: string })[],
   tools: { slug?: unknown; updated_at?: unknown }[],
   guides: { slug?: unknown; updated_at?: unknown }[],
 ): string;

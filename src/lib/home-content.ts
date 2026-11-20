@@ -65,10 +65,28 @@ export const HOME_SECTIONS: ToolSection[] = [
     ],
   },
   {
-    h2: "Carousels, photo sets and audio",
+    h2: "Carousels and photo sets",
     body: [
       "A carousel of five slides becomes five cards, each with its own button, because the files are separate and you may only want one of them. There is deliberately no ZIP export: building an archive would mean holding every file in the Worker's memory at once, and one large video would break the request.",
-      "Video items also carry an MP3 button. It decodes the audio in your own browser and encodes the result locally, so the audio never passes through the server. Very long clips can exceed what a browser is willing to decode and are refused with a message rather than a broken file.",
+    ],
+  },
+  {
+    h2: "Save the audio as MP3, decoded in your browser",
+    body: [
+      "Every video card also has an MP3 button. It downloads the video, decodes its audio track with the Web Audio API and encodes an MP3 locally, so the sound never leaves your device and the server never converts a file. That is why audio extraction needs no queue, no account and no separate upload step.",
+      "The browser has to hold the decoded audio in memory, so very long clips can exceed what a phone allows and are refused with a message instead of a broken file. When the creator publishes an audio-only version, that file is a better source than a re-encode.",
+    ],
+  },
+  {
+    h2: "When a Threads link does not resolve",
+    body: [
+      "Four causes cover almost every failure, and each one has a different fix. The result panel names the case it hit instead of failing silently, so you know whether to copy a different link or stop trying.",
+    ],
+    bullets: [
+      "A profile link was copied instead of a post link — open the post itself and copy from there.",
+      "Only part of the URL was copied; a post address has to contain /post/ and its identifier.",
+      "The post is private, followers-only, deleted or age-restricted, so no signed-out visitor can read it.",
+      "The post is public but holds only text, so there is no video, photo or audio file to save.",
     ],
   },
   {

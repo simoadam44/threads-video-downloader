@@ -16,15 +16,28 @@ interface I18n {
 
 const Ctx = createContext<I18n>({ lang: "en", t: en, setLang: () => {} });
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    try {
-      const s = localStorage.getItem("tvd-lang") as Lang | null;
-      return s === "fr" || s === "ar" || s === "en" ? s : "en";
-    } catch {
-      return "en";
+/**
+ * Initial language. A real localized route wins over the stored preference:
+ * `/ar` must render Arabic on the very first paint (the server already sent
+ * Arabic HTML, and a flash of English would be a hydration mismatch for a
+ * reader). Otherwise the visitor's stored choice, then English.
+ */
+function initialLang(): Lang {
+  try {
+    if (typeof location !== "undefined") {
+      const path = location.pathname;
+      if (path === "/ar" || path.startsWith("/ar/")) return "ar";
+      if (path === "/fr" || path.startsWith("/fr/")) return "fr";
     }
-  });
+    const s = localStorage.getItem("tvd-lang") as Lang | null;
+    return s === "fr" || s === "ar" || s === "en" ? s : "en";
+  } catch {
+    return "en";
+  }
+}
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(initialLang);
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";

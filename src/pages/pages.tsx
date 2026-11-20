@@ -5,6 +5,8 @@ import { AdSlot } from "../components/chrome";
 import { routeFor, siblingsFor } from "../lib/seo-routes";
 import { toolContentFor } from "../lib/tool-content";
 import { HOME_FAQS, HOME_LINKS, HOME_SECTIONS } from "../lib/home-content";
+import { BLOG_INTRO, BLOG_LINKS, BLOG_SECTIONS } from "../lib/blog-content";
+import { localizedHomeFor } from "../lib/localized-home";
 import { applyPageSeo } from "../lib/site";
 import { useEffect, useState } from "react";
 
@@ -87,8 +89,59 @@ export function Home() {
   );
 }
 
-export function ToolPage({ path }: { path: string }) {
-  const r = routeFor(path);
+/**
+ * Real localized homepage (/ar, /fr). Copy comes from the same module the
+ * Worker pre-renders, so the hydrated page and the crawlable HTML agree. The
+ * language context is initialised from the path in src/i18n/index.tsx, which
+ * is why the form and the surrounding controls already speak the page language
+ * on the first render.
+ */
+export function LocalizedHomePage({ path }: { path: string }) {
+  const page = localizedHomeFor(path);
+  useSeo(path);
+  if (!page) return <NotFound />;
+  return (
+    <>
+      <div className="hero">
+        <h1>{page.h1}</h1>
+        <p className="sub">{page.intro}</p>
+        <DownloadForm />
+        <AdSlot slot="below_search" />
+      </div>
+      <section className="section" style={{ textAlign: "left" }} lang={page.lang} dir={page.dir}>
+        <div className="prose">
+          {page.sections.map((s, i) => (
+            <div key={i}>
+              <h2>{s.h2}</h2>
+              {s.body.map((p, j) => (
+                <p key={j}>{p}</p>
+              ))}
+              {s.bullets && (
+                <ul>
+                  {s.bullets.map((b, j) => (
+                    <li key={j}>{b}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+          <h2>{page.faqTitle}</h2>
+          {page.faqs.map((f, i) => (
+            <div key={i}>
+              <h3>{f.q}</h3>
+              <p>{f.a}</p>
+            </div>
+          ))}
+          <p>
+            <Link to="/">{page.englishLabel}</Link>
+          </p>
+        </div>
+      </section>
+    </>
+  );
+}
+
+export function ToolPage({ path }: { path: string }) {  const r = routeFor(path);
   const content = toolContentFor(path);
   useSeo(path);
   return (
@@ -202,6 +255,27 @@ export function BlogPage() {
     <section className="section" style={{ textAlign: "left" }}>
       <h1>Blog</h1>
       <p className="lead">Guides for saving public Threads media responsibly on any device.</p>
+      {/* Same copy as the Worker pre-renders (src/lib/blog-content.ts), so the
+          hydrated page and the crawlable HTML cannot drift. */}
+      <p>{BLOG_INTRO}</p>
+      <div className="prose">
+        {BLOG_SECTIONS.map((s, i) => (
+          <div key={i}>
+            <h2>{s.h2}</h2>
+            {s.body.map((p, j) => (
+              <p key={j}>{p}</p>
+            ))}
+            {s.bullets && (
+              <ul>
+                {s.bullets.map((b, j) => (
+                  <li key={j}>{b}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+      <h2>Latest guides</h2>
       <div className="grid3">
         {live.map((g) => (
           <div className="card" key={`db-${g.slug}`}>
@@ -222,6 +296,17 @@ export function BlogPage() {
             <p>
               <Link to={href}>Read guide →</Link>
             </p>
+          </div>
+        ))}
+      </div>
+      <h2>Where to go next</h2>
+      <div className="grid3">
+        {BLOG_LINKS.map((l) => (
+          <div className="card" key={l.href}>
+            <h3>
+              <Link to={l.href}>{l.label}</Link>
+            </h3>
+            <p>{l.summary}</p>
           </div>
         ))}
       </div>

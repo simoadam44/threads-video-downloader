@@ -83,7 +83,13 @@ export function buildSitemapXml(origin, staticPaths, tools, guides) {
     push(`${origin}/blog/${g.slug}`, lastmodOf(g?.updated_at));
   }
   for (const p of staticPaths) {
-    push(`${origin}${p}`, "");
+    // Static entries may be plain paths (legacy callers) or `{path, updated}`.
+    // `updated` is the curated content date from SEO_ROUTES, so the static copy
+    // carries the same honest <lastmod> as the Worker sitemap.
+    const path = typeof p === "string" ? p : String(p?.path ?? "");
+    if (!path) continue;
+    const updated = typeof p === "string" ? "" : p?.updated;
+    push(`${origin}${path}`, lastmodOf(updated));
   }
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -156,7 +162,7 @@ async function main() {
 
   const xml = buildSitemapXml(
     origin,
-    SEO_ROUTES.map((r) => r.path),
+    SEO_ROUTES.map((r) => ({ path: r.path, updated: r.updated })),
     tools,
     guides,
   );

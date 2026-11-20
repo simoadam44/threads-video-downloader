@@ -2,20 +2,23 @@
   "header": { "home": "Home", "howTo": "How to Use", "features": "Features", "faq": "FAQ", "blog": "Blog" },
   "hero": {
     "badge": "Fast and easy",
-    "title": "Download Threads Videos",
-    "subtitle": "Download high quality videos from Threads quickly, securely and for free.",
-    "placeholder": "Paste video URL here",
+    "title": "Download Threads Videos & Photos",
+    "subtitle": "Save public Threads videos as MP4, photos as JPG, or the audio as MP3. No login, no app and nothing to install.",
+    "placeholder": "Paste a Threads post link",
     "button": "Download",
+    "paste": "Paste link",
+    "resolving": "Resolving the post…",
+    "urlLabel": "Public Threads post URL",
     "trust": "Your data is private and secure. We don't store any links or files.",
     "example": "Example: https://www.threads.net/@username/post/abc123"
   },
   "trustRow": {
-    "fast": "Fast Download",
-    "fastDesc": "Ultra-fast servers for quick downloads.",
-    "safe": "Safe & Secure",
-    "safeDesc": "No malware or ads. 100% safe to use.",
-    "free": "Always Free",
-    "freeDesc": "No hidden fees. Totally free forever."
+    "fast": "Quick processing",
+    "fastDesc": "The resolver answers in about a second on a normal connection.",
+    "safe": "No login needed",
+    "safeDesc": "No account, password, cookie or app install is ever requested.",
+    "free": "Free to use",
+    "freeDesc": "No payment, no signup and no software to install."
   },
   "howTo": {
     "kicker": "How to download",

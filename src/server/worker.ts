@@ -164,11 +164,18 @@ function json(data: unknown, status: number, extra?: Headers): Response {
   return new Response(JSON.stringify(data), { status, headers: h });
 }
 
-/** Branded 404 with real 404 status (no soft-404 SPA shell). */
-function notFoundPage(origin: string, status = 404): Response {
+/**
+ * Branded 404 with real 404 status (no soft-404 SPA shell) and a 410 variant
+ * for retired pages. Both carry `X-Robots-Tag` at the HTTP level as well as in
+ * the markup: a crawler that skips the body still sees the noindex, which is
+ * what keeps retired URLs out of the index after the redirect map changes.
+ * Exported for tests.
+ */
+export function notFoundPage(origin: string, status = 404): Response {
   const h = securityHeaders();
   h.set("content-type", "text/html; charset=utf-8");
   h.set("cache-control", "no-store");
+  h.set("X-Robots-Tag", "noindex, nofollow");
   const title = status === 410 ? "Page removed" : "Page not found";
   const line = status === 410 ? "This page has been retired and is no longer offered." : "This link does not exist.";
   const body = `<!doctype html><html lang="en"><head><meta charset="UTF-8" />` +
@@ -364,8 +371,8 @@ export function sanitizePost(post: ResolvedPost): ResolvedPost {
 // Sitemap/robots built lazily to avoid importing client-only modules.
 // Single source of truth: derive from the SEO_ROUTES registry so the sitemap
 // can never drift from the canonical route list (see scripts/gen-static-seo.mjs).
-function seoRoutes(): { path: string }[] {
-  return SEO_ROUTES.map((r) => ({ path: r.path }));
+function seoRoutes(): { path: string; updated?: string }[] {
+  return SEO_ROUTES.map((r) => ({ path: r.path, updated: r.updated }));
 }
 
 /**
@@ -397,6 +404,32 @@ export function canonicalPath(pathname: string): string {
   return pathname;
 }
 
+/**
+ * Case-insensitive canonicalization for built-in routes.
+ *
+ * `/FAQ` and `/Threads-Video-Downloader` used to answer 404 while `/faq` and
+ * `/threads-video-downloader` answered 200 — a real 404 for a URL a person can
+ * easily type or that an old link can contain. Anything that matches a built-in
+ * route when lowercased answers one 301 to the exact registry casing, with the
+ * query string preserved. Trailing slashes are normalized in the same hop, so
+ * `/FAQ/` does not take two redirects.
+ *
+ * DB slugs are intentionally not matched here: the registry is static and needs
+ * no database read, while slug routes are lowercase by validation.
+ */
+const CASE_ROUTES = new Map<string, string>(
+  [...SEO_ROUTES.map((r) => r.path), "/sitemap.xml", "/robots.txt"].map((p) => [p.toLowerCase(), p]),
+);
+
+/** Whether a differently-cased built-in route should 301 to the registry path. */
+export function caseCanonicalPath(pathname: string): string | null {
+  if (!pathname || pathname === "/") return null;
+  const canonical = canonicalPath(pathname);
+  const lower = canonical.toLowerCase();
+  if (lower === canonical) return null;
+  return CASE_ROUTES.get(lower) ?? null;
+}
+
 export function sitemapXml(origin: string, extra: { kind: string; slug: string; updated_at: string }[] = []): string {
   const root = origin.replace(/\/$/, "");
   const seen = new Set<string>();
@@ -412,7 +445,13 @@ export function sitemapXml(origin: string, extra: { kind: string; slug: string; 
     const lastmod = e.updated_at ? `<lastmod>${e.updated_at.slice(0, 10)}</lastmod>` : "";
     add(`${root}${encodePath(loc)}`, lastmod);
   }
-  for (const r of seoRoutes()) add(`${root}${encodePath(r.path)}`);
+  // Static registry entries: `<lastmod>` comes from the curated content date in
+  // SEO_ROUTES (see src/lib/seo-routes.ts). A build timestamp is deliberately
+  // not used — rebuilding does not modify a page, so it would be a fake signal.
+  for (const r of seoRoutes()) {
+    const lastmod = r.updated && /^\d{4}-\d{2}-\d{2}$/.test(r.updated) ? `<lastmod>${r.updated}</lastmod>` : "";
+    add(`${root}${encodePath(r.path)}`, lastmod);
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${base.join("\n")}\n</urlset>`;
 }
 
@@ -897,9 +936,16 @@ async function linkPool(env: Env): Promise<LinkNode[]> {
     // Sequential DB calls: safest across SQLite and Postgres providers.
     const tools = await db.listToolPages();
     const guides = await db.listGuides();
+    // Cross-links are generated from this pool, so a retired/gone row must
+    // never enter it: the renderer would otherwise link to a 301/410 page.
+    // Route-shadowed rows stay (the built-in page has the same path and is 200).
     const pool: LinkNode[] = [
-      ...tools.filter((t) => t.status === "live").map((t) => ({ kind: "tool" as const, slug: t.slug, title: t.title, lang: t.lang, target_keyword: t.target_keyword })),
-      ...guides.filter((g) => g.status === "live").map((g) => ({ kind: "guide" as const, slug: g.slug, title: g.title, lang: g.lang, target_keyword: g.target_keyword })),
+      ...tools
+        .filter((t) => t.status === "live" && !isRemovedToolSlug(t.slug))
+        .map((t) => ({ kind: "tool" as const, slug: t.slug, title: t.title, lang: t.lang, target_keyword: t.target_keyword })),
+      ...guides
+        .filter((g) => g.status === "live" && !isRetiredGuideSlug(g.slug))
+        .map((g) => ({ kind: "guide" as const, slug: g.slug, title: g.title, lang: g.lang, target_keyword: g.target_keyword })),
     ];
     poolCache.set("pool", pool);
     return pool;
@@ -1021,7 +1067,13 @@ export async function handleStaticSeo(req: Request, env: Env, pathname: string):
   if (pathname === "/blog") {
     try {
       const db = getDb(env);
-      guides = db ? (await db.listGuides()).filter((g) => g.status === "live").map((g) => ({ slug: g.slug, title: g.title })) : [];
+      // Retired guides answer 301, so they must not be linked from an indexed
+      // page (the rows stay in the DB; only the SSR list is filtered).
+      guides = db
+        ? (await db.listGuides())
+            .filter((g) => g.status === "live" && !isRetiredGuideSlug(g.slug))
+            .map((g) => ({ slug: g.slug, title: g.title }))
+        : [];
     } catch {
       guides = [];
     }
@@ -1340,6 +1392,10 @@ export default {
       const destination = retiredRedirect(url.pathname);
       if (destination) return permanentRedirect(destination, url);
       if (isGonePath(url.pathname)) return notFoundPage(siteUrl(env, req), 410);
+      // Built-in routes are case-insensitive: /FAQ or /FAQ/ answers one 301 to
+      // the registry path instead of a 404 (no second hop for the slash form).
+      const cased = caseCanonicalPath(url.pathname);
+      if (cased) return permanentRedirect(cased + url.search, url);
     }
     if (req.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, resolver: getResolver(env).name }, 200);

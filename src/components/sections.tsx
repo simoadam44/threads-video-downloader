@@ -37,12 +37,18 @@ export function DownloadForm() {
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const abort = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const loading = status.kind === "loading";
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
+    // A second tap while the first request is in flight would abort it and
+    // restart the wait, which feels broken on a phone.
+    if (loading) return;
     const url = extractClientSide(value);
     if (!url) {
       setStatus({ kind: "error", code: "INVALID_URL" });
+      inputRef.current?.focus();
       return;
     }
     abort.current?.abort();
@@ -60,31 +66,50 @@ export function DownloadForm() {
   async function paste() {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) setValue(text);
+      // A share sheet often copies "Look at this post: https://…", so keep only
+      // the URL when one is present.
+      const url = extractClientSide(text || "");
+      if (url) setValue(url);
+      inputRef.current?.focus();
+      if (url) inputRef.current?.setSelectionRange(url.length, url.length);
     } catch {
-      /* clipboard unavailable */
+      // Clipboard permission denied: focus the field so typing is one tap away.
+      inputRef.current?.focus();
     }
   }
 
   return (
     <div>
-      <form className="urlbar" onSubmit={submit} role="search" aria-label="Threads URL resolver">
+      <form
+        className="urlbar"
+        onSubmit={submit}
+        role="search"
+        aria-label={t.hero.urlLabel}
+        aria-busy={loading}
+      >
         <span aria-hidden="true" style={{ alignSelf: "center", paddingLeft: 8 }}>
           🔗
         </span>
         <input
+          ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder={t.hero.placeholder}
           inputMode="url"
           autoComplete="off"
-          aria-label="Threads video URL"
+          aria-label={t.hero.urlLabel}
         />
-        <button type="button" className="btn btn-ghost" onClick={paste}>
-          Paste
+        <button
+          type="button"
+          className="btn btn-paste"
+          onClick={paste}
+          disabled={loading}
+          aria-label={t.hero.paste}
+        >
+          📋 {t.hero.paste}
         </button>
-        <button type="submit" className="btn">
-          {t.hero.button} ↓
+        <button type="submit" className="btn" disabled={loading}>
+          {loading && <span className="spinner" aria-hidden="true" />} {t.hero.button} ↓
         </button>
       </form>
       <p className="trust-micro">🔒 {t.hero.trust}</p>
@@ -92,8 +117,8 @@ export function DownloadForm() {
 
       <div aria-live="polite">
         {status.kind === "loading" && (
-          <p>
-            <span className="spinner" aria-hidden="true" /> Resolving…
+          <p role="status">
+            <span className="spinner" aria-hidden="true" /> {t.hero.resolving}
           </p>
         )}
         {status.kind === "error" && (

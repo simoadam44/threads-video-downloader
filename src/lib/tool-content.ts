@@ -67,6 +67,13 @@ const VIDEO: ToolContent = {
       ],
     },
     {
+      h2: "Audio-only MP3, decoded inside your browser",
+      body: [
+        "Each video card also carries an MP3 button. The audio track is decoded with the Web Audio API and encoded locally, so the video is never uploaded to a conversion server and there is no queue to wait in.",
+        "The trade-off is memory: the browser has to keep the decoded audio in RAM while it encodes, so a music-length clip may be refused with a message. When that happens, save the MP4 instead — the original audio track is intact inside it.",
+      ],
+    },
+    {
       h2: "What the tool does not do",
       body: [
         "It does not ask for a Threads login, a password, cookies or an access token, because it only works with posts that anyone can open in a browser. Private, deleted or restricted posts return a clear message instead of a generic error.",

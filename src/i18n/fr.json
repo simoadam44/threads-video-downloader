@@ -2,20 +2,23 @@
   "header": { "home": "Accueil", "howTo": "Mode d'emploi", "features": "Fonctionnalités", "faq": "FAQ", "blog": "Blog" },
   "hero": {
     "badge": "Rapide et facile",
-    "title": "Télécharger des vidéos Threads",
-    "subtitle": "Téléchargez des vidéos Threads de haute qualité rapidement, en sécurité et gratuitement.",
-    "placeholder": "Collez le lien vidéo ici",
+    "title": "Télécharger des vidéos et photos Threads",
+    "subtitle": "Enregistrez une vidéo publique en MP4, une photo en JPG ou l'audio en MP3. Sans compte, sans application et sans installation.",
+    "placeholder": "Collez le lien d'une publication Threads",
     "button": "Télécharger",
+    "paste": "Coller le lien",
+    "resolving": "Analyse de la publication…",
+    "urlLabel": "Lien d'une publication Threads publique",
     "trust": "Vos données sont privées et sécurisées. Nous ne stockons ni liens ni fichiers.",
     "example": "Exemple : https://www.threads.net/@utilisateur/post/abc123"
   },
   "trustRow": {
-    "fast": "Téléchargement rapide",
-    "fastDesc": "Serveurs ultra-rapides pour des téléchargements rapides.",
-    "safe": "Sûr et sécurisé",
-    "safeDesc": "Sans malwares ni publicités. 100 % sûr.",
-    "free": "Toujours gratuit",
-    "freeDesc": "Sans frais cachés. Totalement gratuit."
+    "fast": "Traitement rapide",
+    "fastDesc": "Le résolveur répond en une seconde environ sur une connexion normale.",
+    "safe": "Sans connexion",
+    "safeDesc": "Aucun compte, mot de passe, cookie ou logiciel n'est demandé.",
+    "free": "Gratuit",
+    "freeDesc": "Sans paiement, sans inscription et sans installation."
   },
   "howTo": {
     "kicker": "Comment télécharger",

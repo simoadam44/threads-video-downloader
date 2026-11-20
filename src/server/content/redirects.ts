@@ -44,11 +44,15 @@ export const RETIRED_TOOL_SLUGS: Readonly<Record<string, string>> = {
   "threads-to-mp4-video-conversion-tool": "/threads-video-downloader",
   "threads-mp4-downloader-tool": "/threads-video-downloader",
   "threads-video-length-limit-utility": "/threads-video-downloader",
-  // A "best X" listicle with nothing to compare.
-  "best-threads-video-downloader-online": "/",
-  // The same iPhone how-to, generated twice; the built-in guide owns the intent.
-  "how-to-download-threads-video-on-iphone-mobile-browser": "/how-to-download-threads-videos",
-  "how-to-download-threads-video-on-iphone-mobile-browser-2": "/how-to-download-threads-videos",
+  // A "best X" listicle with nothing to compare: the tool page serves the
+  // "which downloader" intent better than the homepage (which is the product).
+  "best-threads-video-downloader-online": "/threads-video-downloader",
+  // The same iPhone how-to, generated twice; the iPhone guide owns the intent
+  // (device-specific) rather than the generic how-to article.
+  "how-to-download-threads-video-on-iphone-mobile-browser":
+    "/blog/how-to-download-threads-videos-on-iphone-safari-ios",
+  "how-to-download-threads-video-on-iphone-mobile-browser-2":
+    "/blog/how-to-download-threads-videos-on-iphone-safari-ios",
 };
 
 /** Blog-level (guide) slugs that must redirect. */

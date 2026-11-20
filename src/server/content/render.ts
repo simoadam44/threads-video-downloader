@@ -11,6 +11,10 @@ import { infoPageFor, type InfoBlock } from "../../lib/info-pages";
 import { toolContentFor, type ToolFaq, type ToolSection } from "../../lib/tool-content";
 import { siblingsFor } from "../../lib/seo-routes";
 import { HOME_FAQS, HOME_LINKS, HOME_SECTIONS, type HomeLink } from "../../lib/home-content";
+import { BLOG_INTRO, BLOG_LINKS, BLOG_SECTIONS } from "../../lib/blog-content";
+import { hreflangFor, localizedHomeFor } from "../../lib/localized-home";
+import { isRemovedToolSlug, isRetiredGuideSlug } from "./redirects";
+import { repairContentLinks } from "./links";
 
 export function escapeHtml(s: string): string {
   return s
@@ -64,9 +68,20 @@ export interface PageMeta {
   /** Open Graph object type. Static/tool pages are "website"; guides are "article". */
   ogType?: "website" | "article";
   jsonLd: string[];
+  /** Absolute hreflang alternates (already origin-prefixed). */
+  hreflang?: { hreflang: string; href: string }[];
   tracking?: TrackingConfig;
   /** Extra trusted head HTML (e.g. AdSense auto-ads script). */
   extraHead?: string;
+}
+
+function hreflangHtml(meta: PageMeta): string {
+  if (!meta.hreflang?.length) return "";
+  return (
+    meta.hreflang
+      .map((a) => `<link rel="alternate" hreflang="${escapeHtml(a.hreflang)}" href="${escapeHtml(a.href)}" />`)
+      .join("\n") + "\n"
+  );
 }
 
 function applyTrackingHead(html: string, meta: PageMeta): string {
@@ -113,6 +128,7 @@ export function renderMinimalShell(meta: PageMeta, contentHtml: string): string 
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />` +
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />` +
     `<meta name="twitter:image" content="${escapeHtml(meta.ogImage)}" />` +
+    hreflangHtml(meta) +
     `<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px;line-height:1.6}</style>` +
     `${ld}</head><body>${contentHtml}</body></html>`;
   return applyTrackingBody(applyTrackingHead(out, meta), meta);
@@ -225,6 +241,8 @@ export function renderShell(template: string, meta: PageMeta, contentHtml: strin
   let link = html.match(/<link rel="canonical"[^>]*>/);
   const canonicalTag = `<link rel="canonical" href="${escapeHtml(meta.canonical)}" />`;
   html = link ? html.replace(link[0], canonicalTag) : html.replace("</head>", `${canonicalTag}\n</head>`);
+  const alternates = hreflangHtml(meta);
+  if (alternates) html = html.replace("</head>", `${alternates}</head>`);
   const ld = meta.jsonLd.map((j) => `\n<script type="application/ld+json">${j}</script>`).join("");
   html = html.replace("</head>", `${ld}\n</head>`);
   html = applyTrackingHead(html, meta);
@@ -233,11 +251,27 @@ export function renderShell(template: string, meta: PageMeta, contentHtml: strin
   return html;
 }
 
-function relatedHtml(related: LinkNode[], base: string, label: string): string {
-  if (related.length === 0) return "";
+/** Canonical path for a cross-link: guides live under /blog, tools at the root. */
+function linkPath(node: LinkNode): string {
+  return node.kind === "guide" ? `/blog/${node.slug}` : `/${node.slug}`;
+}
+
+/** Retired/gone pages never receive an internal link (they answer 301/410). */
+function isLinkable(node: LinkNode): boolean {
+  return node.kind === "guide" ? !isRetiredGuideSlug(node.slug) : !isRemovedToolSlug(node.slug);
+}
+
+/**
+ * Related-pages nav. `kind` decides the prefix (guides are `/blog/<slug>`,
+ * tools are `/<slug>`); before this the caller's base was applied to both and
+ * produced `/blog/<tool-slug>` and `/<guide-slug>` 404s.
+ */
+function relatedHtml(related: LinkNode[], origin: string, label: string): string {
   const items = related
-    .map((r) => `<li><a href="${base}/${escapeHtml(r.slug)}">${escapeHtml(r.title)}</a></li>`)
+    .filter(isLinkable)
+    .map((r) => `<li><a href="${escapeHtml(origin + linkPath(r))}">${escapeHtml(r.title)}</a></li>`)
     .join("");
+  if (items === "") return "";
   return `<nav aria-label="${escapeHtml(label)}"><h2>${escapeHtml(label)}</h2><ul>${items}</ul></nav>`;
 }
 
@@ -293,6 +327,7 @@ export function renderStaticRoute(
 ): string {
   const canonical = route.path === "/" ? `${origin}/` : `${origin}${route.path}`;
   const info = infoPageFor(route.path);
+  const localized = localizedHomeFor(route.path);
   const tool = toolContentFor(route.path);
   let main: string;
   if (info) {
@@ -310,6 +345,22 @@ export function renderStaticRoute(
       `<p>${escapeHtml(info.intro)}</p>${updated}` +
       infoBlocksHtml(info.blocks) +
       related +
+      `</main>`;
+  } else if (localized) {
+    // Real localized entry point (/ar, /fr). Copy lives in
+    // src/lib/localized-home.ts and is shared with the React page, so the
+    // crawlable HTML and the hydrated page carry identical text. The canonical
+    // stays self-referential and the hreflang cluster in <head> ties the three
+    // language versions together instead of treating them as duplicates.
+    main =
+      `<main lang="${localized.lang}" dir="${localized.dir}">` +
+      `<h1>${escapeHtml(localized.h1)}</h1>` +
+      `<p>${escapeHtml(localized.intro)}</p>` +
+      sectionsHtml(localized.sections) +
+      `<section><h2>${escapeHtml(localized.faqTitle)}</h2>${localized.faqs
+        .map((f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`)
+        .join("")}</section>` +
+      `<p><a href="/" hreflang="en" lang="en">${escapeHtml(localized.englishLabel)}</a></p>` +
       `</main>`;
   } else {
     main = `<main><h1>${escapeHtml(route.h1)}</h1><p>${escapeHtml(route.description)}</p>` +
@@ -341,6 +392,12 @@ export function renderStaticRoute(
         (f) => `<div><h3>${escapeHtml(f.q)}</h3><p>${escapeHtml(f.a)}</p></div>`,
       ).join("")}</section>`;
     }
+    // The /blog hub used to be a bare list of link titles (~20 words of body
+    // text once navigation is discounted). It now carries the same long-form
+    // copy as the React page, from the shared module.
+    if (route.path === "/blog") {
+      main += `<p>${escapeHtml(BLOG_INTRO)}</p>` + sectionsHtml(BLOG_SECTIONS);
+    }
     // The /blog hub lists live guides so crawlers discover every article.
     if (route.path === "/blog" && guides && guides.length > 0) {
       main += `<nav aria-label="Latest guides"><h2>Latest guides</h2><ul>` +
@@ -350,6 +407,7 @@ export function renderStaticRoute(
           .join("") +
         `</ul></nav>`;
     }
+    if (route.path === "/blog") main += homeLinksHtml(BLOG_LINKS);
     main += `</main>`;
   }
   const content = `${siteHeaderHtml()}${main}${siteFooterHtml()}`;
@@ -382,6 +440,25 @@ export function renderStaticRoute(
     schemas.push(faqJsonLd(HOME_FAQS));
   }
   if (route.path === "/faq") schemas.push(faqJsonLd(FAQ_ITEMS));
+  // Localized homepages describe the same application in their own language.
+  if (localized) {
+    schemas.push(
+      JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        name: localized.h1,
+        url: canonical,
+        description: localized.description,
+        applicationCategory: "MultimediaApplication",
+        operatingSystem: "Any",
+        browserRequirements: "Requires JavaScript",
+        isAccessibleForFree: true,
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+        inLanguage: localized.lang,
+      }),
+    );
+    schemas.push(faqJsonLd(localized.faqs));
+  }
   if (tool) {
     // Visible Q/A on the page, so the matching structured data is legitimate.
     schemas.push(faqJsonLd(tool.faqs));
@@ -409,13 +486,18 @@ export function renderStaticRoute(
       }),
     );
   }
+  const alternates = hreflangFor(route.path)?.map((a) => ({
+    hreflang: a.hreflang,
+    href: a.href === "/" ? `${origin}/` : `${origin}${a.href}`,
+  }));
   const meta: PageMeta = {
     title: route.title,
     description: route.description,
     canonical,
     ogImage: `${origin}${ogImage}`,
-    lang: "en",
+    lang: localized?.lang ?? "en",
     ogType: "website",
+    hreflang: alternates,
     tracking,
     extraHead: adsHead,
     jsonLd: schemas,
@@ -472,9 +554,12 @@ export function renderGuide(
   adsHead?: string,
 ): string {
   const canonical = `${origin}/blog/${guide.slug}`;
-  const content = `${siteHeaderHtml()}<main><article><h1>${escapeHtml(guide.h1)}</h1>${guide.body}` +
+  // Stored bodies can contain retired links and anchors whose closer was saved
+  // as `<a href="/">`; repair them at render time (rows are never mutated).
+  const body = repairContentLinks(guide.body, origin);
+  const content = `${siteHeaderHtml()}<main><article><h1>${escapeHtml(guide.h1)}</h1>${body}` +
     faqHtml(guide.faqs) +
-    relatedHtml(related, `${origin}/blog`, "Related guides") +
+    relatedHtml(related, origin, "Related guides") +
     `<p><a href="/">Threads Video Downloader</a> · <a href="/blog">All guides</a></p></article></main>${siteFooterHtml()}`;
   const meta: PageMeta = {
     title: guide.title,

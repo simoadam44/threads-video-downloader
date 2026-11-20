@@ -287,3 +287,131 @@ Deliberately **not** done:
 - The homepage `<h1>` stayed "Download Threads Videos" (unique per route) instead of duplicating
   the `/threads-video-downloader` `<h1>`; the `<title>` already leads with the brand term.
 - GSC sitemap resubmission and any reconsideration request remain owner-only.
+
+## 10. Phase 2 — internal-link repair (implemented + deployed 2026-11-18)
+
+The Final SEO Audit found four remaining issues, all in the internal-link graph rather than
+in the pages that Phase 1 touched. Fixed in code; **no migration, no row edit, no deletion,
+no new page, no sitemap/canonical/www change**, and nothing deployed or pushed.
+
+1. **P1 — wrong prefixes in "Related …" navs** (`src/server/content/render.ts`). `relatedHtml()`
+   applied the caller's base to every node, so guide pages produced `/blog/<tool-slug>` and tool
+   pages produced `/<guide-slug>`: 12 internal 404s across five pages. It now reads `LinkNode.kind`
+   (`guide → /blog/<slug>`, `tool → /<slug>`) and drops nodes whose slug is retired/gone, so the
+   nav is correct even if a future caller passes an unfiltered list.
+2. **P1b — the pool could re-introduce them** (`src/server/worker.ts`, `linkPool()`). Cross-links
+   are generated from this pool, so removed rows are filtered before it is built. Route-shadowed
+   rows (e.g. `threads-carousel-downloader`) stay, because the built-in page at the same path is a
+   real 200 destination.
+3. **P2 — `/blog` hub linked 15 retired guides** (`handleStaticSeo`, same file). The SSR list now
+   filters `isRetiredGuideSlug()`; rows stay in the database and the API indexes were already
+   filtered in Phase 1.
+4. **P3 — stored bodies** (`src/server/content/links.ts`, new). Rows cannot be edited here (no
+   admin credentials, SQL forbidden), so `repairContentLinks()` fixes the stored HTML at render
+   time, applied by `renderGuide()`: anchors whose closer was stored as `<a href="/">` are
+   rebalanced, same-site absolute URLs become root-relative, retired links point straight at their
+   final 200 URL, and links to the 410 page lose the anchor but keep the text. It is idempotent and
+   leaves external links, fragments, `mailto:`/`tel:` and valid markup byte-identical.
+5. **P7 — three redirect targets** (`src/server/content/redirects.ts`):
+   `/best-threads-video-downloader-online → /threads-video-downloader` (tool intent, not the
+   homepage) and both duplicated iPhone pages →
+   `/blog/how-to-download-threads-videos-on-iphone-safari-ios` (device-specific guide).
+   Both destinations are in the sitemap and answer 200.
+
+Verification: `npx tsc --noEmit` clean, `npx vitest run` = **257 tests / 22 files** (16 new in
+`tests/content-links.test.ts`), `npm run build` clean with an unchanged client bundle
+(`index-CVNfZHzR.js`, 310.61 kB, gzip 96.11). The repair was also run against the real production
+HTML of the four affected pages (read-only fetch): every retired/404 link in the stored body is
+gone, anchors balance and no nested anchors remain. Local `wrangler dev --local` cannot render DB
+pages (empty local D1), so the renderer checks are unit-level plus production-HTML fixtures; the
+redirect `Location` headers were verified locally.
+
+
+## 11. Phase 3 - SEO hygiene (2026-11-20)
+
+Four residual defects from the 2026-10-27 technical audit. No schema change, no migration, no row
+edit, no deletion: every fix is code or copy, and all four are covered by tests.
+
+1. **Error pages are noindex at the HTTP level.** `notFoundPage()` sent noindex only inside the
+   markup; a crawler that reads headers first had no signal. Both `404` and `410` now carry
+   `X-Robots-Tag: noindex, nofollow` plus `Cache-Control: no-store`.
+2. **Built-in routes are case-insensitive.** `/FAQ`, `/Terms`, `/Sitemap.xml` and their slash forms
+   answered `404`. `caseCanonicalPath()` now returns one `301` to the registered lowercase path,
+   folding the trailing-slash normalization into the same hop. It needs no database read and never
+   touches DB slugs, `/api/*`, hashed assets or percent-encoded Arabic paths.
+3. **Honest `<lastmod>` on static pages.** Every `SEO_ROUTES` entry carries a curated `updated`
+   content date (`YYYY-MM-DD`), bumped only when that page's copy changes and never derived from
+   the build or deploy time. The Worker sitemap and `scripts/gen-static-seo.mjs` emit the same
+   sequence (asserted by a test that also rejects future dates).
+4. **Thin hub and legal pages.** `src/lib/blog-content.ts` (intro, four sections, link cards) took
+   `/blog` from about 20 words of body text to 400+ and is shared by the Worker and React. `/contact`
+   gained two sections in `src/lib/info-pages.ts` and its own `CONTACT_LAST_UPDATED` stamp, so it no
+   longer borrows the site-wide date.
+
+Counts with this phase: `npx tsc --noEmit` clean, `npx vitest run` = **269 tests / 23 files**
+(new `tests/seo-hygiene.test.ts`).
+
+## 12. Phase 4 - the seven recommendations (2026-11-20)
+
+A separate SEO review proposed seven changes. Six were implementable in this repository; the
+seventh (authority/backlinks) is not a code change and is listed honestly as out of scope.
+
+1. **Homepage vs. `/threads-video-downloader` cannibalization.** No `301` was added: the homepage
+   is the broad "videos & photos" entry point and the tool page owns the MP4/HD intent, and
+   redirecting one into the other would break the existing video/photo/carousel trio. The intents
+   were separated instead:
+   - `/` -> title `Threads Video Downloader - Download Videos & Photos Free`, H1
+     `Download Threads Videos & Photos`.
+   - `/threads-video-downloader` -> title `Threads Video Downloader - Save MP4 in HD, No Login`,
+     H1 `Threads Video Downloader`, plus a body section about real published renditions.
+   - Photo and carousel titles/descriptions were tightened the same way.
+   No two registered routes share a title, description or H1 (`SEO_ROUTES` tests enforce this).
+2. **Real language routes with hreflang.** `/ar` and `/fr` are now real, server-rendered routes,
+   not a `localStorage` preference. New module `src/lib/localized-home.ts` holds hand-written
+   Arabic and French copy (about 450 and 540 words of visible body text, five sections and five
+   FAQs each) plus `HREFLANG_PATHS` and `hreflangFor()`. Every member of the cluster declares all
+   three alternates plus `x-default`, and each page stays **self-canonical**: a translation is an
+   alternate, not a duplicate to consolidate. `renderShell()` and `renderMinimalShell()` emit the
+   `<link rel="alternate">` tags, `PageMeta.hreflang` carries them, `I18nProvider` initialises the
+   UI language from the path so the first paint is already in the page language. Both pages are in
+   the sitemap and carry `WebApplication` + `FAQPage` with `inLanguage`. The long English guides are
+   deliberately not machine-translated; nothing claims a translated article exists.
+3. **Mobile/Navboost UX.** Every `.btn` now has `min-height: 48px`; the URL field is 48px tall with
+   a `:focus-within` highlight; the paste control became a distinct `.btn-paste` (violet, bold,
+   `aria-label`) because most visitors arrive with the link already on the clipboard. Pasting a
+   share-sheet string now keeps only the URL and returns focus to the field.
+4. **Higher-CTR SERP copy.** The homepage title moved from the generic
+   `- Download Threads Videos & Photos` to `- Download Videos & Photos Free`, and the tool page from
+   `- Save Public Threads Videos in HD` to `- Save MP4 in HD, No Login`. Descriptions now name the
+   concrete output (MP4, JPG, MP3) instead of adjectives.
+5. **Information gain (MP3 + troubleshooting).** The homepage gained a section on the in-browser MP3
+   path (Web Audio decode, no server conversion, memory limit) and a
+   `When a Threads link does not resolve` section with the four real failure causes. The video tool
+   page gained an `Audio-only MP3, decoded inside your browser` section. This is first-hand
+   operational knowledge rather than restated marketing copy.
+6. **Brand signals and backlinks.** Not implemented here: it is outreach (GitHub, Product Hunt,
+   relevant communities, documentation links), not a repository change. Nothing was fabricated to
+   simulate it, and no fake reviews, ratings or user counts were added.
+7. **LCP/INP.** No new blocking work was introduced: the resolve request is the only network call on
+   first interaction, the form now sets `aria-busy`, shows a spinner in the submit button and a
+   `role="status"` line, disables both buttons while in flight (no double submit), and aborts the
+   previous request. Article and hero media are unchanged, so layout shift is unchanged.
+
+Verification for this phase (2026-11-20): `npx tsc --noEmit` clean; `npx vitest run` =
+**277 tests / 24 files** (new `tests/localized-home.test.ts`, 8 tests); `npm run build` clean
+(client `index-CbxzGalO.js` 328.25 kB, gzip 102.30; CSS 10.18 kB); build-time sitemap
+**22 URLs / 22 lastmod** including `/ar` and `/fr`. Local `wrangler dev --local` run against the
+built output verified: `/ar` returns `<html lang="ar" dir="rtl">`, the four `hreflang` tags, a
+self-canonical and 453 words in `<main>`; `/fr` returns `lang="fr"`, 542 words; `/` returns the new
+title/H1, the hreflang cluster and 1,408 words; `/threads-video-downloader` returns the new title;
+`/ar/` -> `308`, `/AR` -> `301`, `/FAQ` -> `301`; `/sitemap.xml` 15 static URLs with `/ar` and
+`/fr`; `/robots.txt` with the canonical `Sitemap:` line; `404` and `410` both carry
+`X-Robots-Tag: noindex, nofollow`; `/blog` 484 words, `/contact` 439; mock resolver returns video,
+photo and a five-item carousel, `PRIVATE_CONTENT`, `MEDIA_NOT_FOUND` and `UNSUPPORTED_URL` as
+expected; a forged download token answers `404`.
+
+Note on the local runtime: `wrangler dev --local` on this Windows machine periodically reports
+`The Workers runtime crashed unexpectedly and is being restarted`, which makes every in-flight
+request hang (`curl` code `000`) until the process is killed. The cause is the local `workerd`
+process, not the Worker code: a fresh instance answers the full matrix above. Production
+verification is therefore done on the deployed Worker.

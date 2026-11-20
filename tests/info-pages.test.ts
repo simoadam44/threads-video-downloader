@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { INFO_PAGES, INFO_LAST_UPDATED, infoPageFor, type InfoPageContent } from "../src/lib/info-pages";
+import { INFO_PAGES, INFO_LAST_UPDATED, CONTACT_LAST_UPDATED, infoPageFor, type InfoPageContent } from "../src/lib/info-pages";
 import { SEO_ROUTES } from "../src/lib/seo-routes";
 import { FAQ_ITEMS } from "../src/lib/faq";
 import { renderStaticRoute } from "../src/server/content/render";
@@ -67,9 +67,15 @@ describe("info pages: registry integrity", () => {
 
   it("the last-updated stamp is a readable date", () => {
     expect(INFO_LAST_UPDATED).toMatch(/^\d{1,2} [A-Z][a-z]+ \d{4}$/);
+    // Pages can carry their own revision date once they change after the
+    // site-wide stamp; every stamp must still be a real, non-future date.
     for (const page of Object.values(INFO_PAGES)) {
-      if (page.updated) expect(page.updated).toBe(INFO_LAST_UPDATED);
+      if (!page.updated) continue;
+      expect(page.updated, page.path).toMatch(/^\d{1,2} [A-Z][a-z]+ \d{4}$/);
+      expect(Date.parse(page.updated), page.path).not.toBeNaN();
+      expect(Date.parse(page.updated), page.path).toBeLessThanOrEqual(Date.now());
     }
+    expect(INFO_PAGES["/contact"].updated).toBe(CONTACT_LAST_UPDATED);
   });
 });
 

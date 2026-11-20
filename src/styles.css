@@ -54,11 +54,22 @@ header.site {
 .btn {
   appearance: none; border: 1px solid var(--btn); background: var(--btn); color: var(--btn-text);
   border-radius: 12px; padding: 12px 22px; font-weight: 700; font-size: 16px; cursor: pointer;
+  /* 48px keeps every primary action inside the comfortable thumb target range. */
+  min-height: 48px;
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
 .btn:hover { opacity: 0.92; }
 .btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.55; cursor: progress; }
 .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+/* One-tap paste: most visitors arrive from the Threads app with the link on the
+   clipboard, so this is a primary action, not a subtle accessory. */
+.btn-paste {
+  background: color-mix(in srgb, #8b5cf6 14%, transparent);
+  border: 1px solid color-mix(in srgb, #8b5cf6 45%, var(--border));
+  color: var(--text); font-weight: 700; white-space: nowrap;
+}
+.btn-paste:hover { background: color-mix(in srgb, #8b5cf6 22%, transparent); opacity: 1; }
 .icon-btn {
   border: 1px solid var(--border); background: var(--card); color: var(--text);
   border-radius: 10px; padding: 8px 12px; cursor: pointer; font-size: 14px;
@@ -77,9 +88,12 @@ header.site {
 }
 .urlbar input {
   flex: 1; border: 0; background: transparent; color: var(--text);
-  font-size: 16px; padding: 12px 14px; min-width: 0;
+  /* 16px avoids the iOS zoom-on-focus jump; 48px min height keeps the field
+     easy to hit with a thumb. */
+  font-size: 16px; padding: 14px; min-width: 0; min-height: 48px;
 }
 .urlbar input:focus { outline: none; }
+.urlbar:focus-within { border-color: color-mix(in srgb, #8b5cf6 55%, var(--border)); }
 .trust-micro { color: var(--muted); font-size: 13px; margin-top: 12px; }
 .example { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 36px 0; }

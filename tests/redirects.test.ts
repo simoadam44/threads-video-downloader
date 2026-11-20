@@ -50,7 +50,18 @@ describe("retiredRedirect", () => {
   it("301s a retired tool slug to the page that owns the intent", () => {
     expect(retiredRedirect("/threads-video-downloader-hd")).toBe("/threads-video-downloader");
     expect(retiredRedirect("/threads-video-downloader-hd/")).toBe("/threads-video-downloader");
-    expect(retiredRedirect("/best-threads-video-downloader-online")).toBe("/");
+    // "best downloader" intent is served by the tool page, not the homepage.
+    expect(retiredRedirect("/best-threads-video-downloader-online")).toBe("/threads-video-downloader");
+  });
+
+  it("sends the duplicated iPhone pages to the device-specific guide", () => {
+    const iphone = "/blog/how-to-download-threads-videos-on-iphone-safari-ios";
+    expect(retiredRedirect("/how-to-download-threads-video-on-iphone-mobile-browser")).toBe(iphone);
+    expect(retiredRedirect("/how-to-download-threads-video-on-iphone-mobile-browser-2")).toBe(iphone);
+    expect(retiredRedirect("/how-to-download-threads-video-on-iphone-mobile-browser/")).toBe(iphone);
+    // The destination is a live guide path, not a retired slug and not gone.
+    expect(isRetiredGuideSlug(iphone.slice("/blog/".length))).toBe(false);
+    expect(isGonePath(iphone)).toBe(false);
   });
 
   it("301s a retired guide to its replacement", () => {

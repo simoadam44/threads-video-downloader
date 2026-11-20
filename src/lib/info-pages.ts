@@ -37,6 +37,8 @@ export interface InfoPageContent {
 }
 
 export const INFO_LAST_UPDATED = "27 October 2026";
+/** Revised after the site-wide stamp; shown only on that page. */
+export const CONTACT_LAST_UPDATED = "20 November 2026";
 
 const CONTACT_LINK = { href: "/contact", label: "Contact page" };
 const HOW_TO_LINK = { href: "/how-to-use", label: "How to use this downloader" };
@@ -567,7 +569,7 @@ const CONTACT: InfoPageContent = {
   path: "/contact",
   intro:
     "Use this page to report a problem, request a correction, raise a copyright or privacy concern, or ask a question about how the tool works. Messages are read by the site operator.",
-  updated: INFO_LAST_UPDATED,
+  updated: CONTACT_LAST_UPDATED,
   blocks: [
     { kind: "h2", text: "What to contact us about" },
     {
@@ -588,6 +590,16 @@ const CONTACT: InfoPageContent = {
         "The browser and device you used, for technical problems.",
         "For rights complaints: the post link, the material concerned, and the basis of your claim.",
       ],
+    },
+    { kind: "h2", text: "Reporting a post that will not save" },
+    {
+      kind: "p",
+      text: "Most reports about a link come down to four things: the address is a profile link rather than a post link, only part of the URL was copied, the post is private or has been deleted, or it holds no video or photo at all. Checking those first usually explains the result without a message. If the post is public, opens in a private window without logging in, and still fails on this site, send the full link and the browser you used.",
+    },
+    { kind: "h2", text: "What happens after you write" },
+    {
+      kind: "p",
+      text: "A message is stored with the fields you typed, read by the operator, and answered through the address you provide when a reply is possible. Nothing you send is published, and nothing is added to a mailing list. If your request was about a page or a post that has since been fixed, a short follow-up is enough to close it.",
     },
     {
       kind: "note",

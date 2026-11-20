@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Header, Footer, AdSlot } from "./components/chrome";
-import { Home, ToolPage, FaqPage, BlogPage, NotFound } from "./pages/pages";
+import { Home, ToolPage, FaqPage, BlogPage, NotFound, LocalizedHomePage } from "./pages/pages";
 import { InfoArticle, ContactPage } from "./pages/info";
 import { AdminLogin, AdminOverview, AdminRequests, AdminMessages, AdminSettings } from "./pages/admin/admin";
 import { KeywordsTools, BlogGuides } from "./pages/admin/content";
@@ -18,6 +18,8 @@ export default function App() {
       <main className="container">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/ar" element={<LocalizedHomePage path="/ar" />} />
+          <Route path="/fr" element={<LocalizedHomePage path="/fr" />} />
           <Route path="/threads-video-downloader" element={<ToolPage path="/threads-video-downloader" />} />
           <Route path="/threads-photo-downloader" element={<ToolPage path="/threads-photo-downloader" />} />
           <Route path="/threads-carousel-downloader" element={<ToolPage path="/threads-carousel-downloader" />} />
